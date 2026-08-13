@@ -88,4 +88,4 @@ Every artifact opens with a status blockquote:
 
 | Feature | Stage | Notes |
 |---|---|---|
-| _(none yet — the first request will be the box-score foundation)_ | | |
+| [box-score-foundation](box-score-foundation/) | intake | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Verifies the `leaguegamelog` bulk-endpoint belief; derives SCD2 player-team affiliation from observed box scores. |
