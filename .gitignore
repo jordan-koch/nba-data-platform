@@ -1,0 +1,87 @@
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# Never commit credentials. The repo is public; assume anything here is world-readable.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials
+credentials.json
+secrets.yml
+secrets.yaml
+
+# ─── Scratch root ─────────────────────────────────────────────────────────────
+# var/ is the gitignored working root: local landing zone, DuckDB files, caches,
+# checkpoints, run state. Everything here is regenerable — see CLAUDE.md.
+var/
+
+# ─── Data ─────────────────────────────────────────────────────────────────────
+# This repo holds code, contracts, docs, and fixtures — never bulk data.
+# Test fixtures are the one carve-out and are whitelisted explicitly below.
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.avro
+*.orc
+*.csv
+*.tsv
+*.jsonl
+*.ndjson
+!tests/fixtures/**/*.json
+!tests/fixtures/**/*.csv
+!transform/seeds/**/*.csv
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ─── dbt ──────────────────────────────────────────────────────────────────────
+target/
+dbt_packages/
+logs/
+# dbt writes an anonymous telemetry user id here — machine-local, not project config.
+.user.yml
+# transform/profiles.yml IS committed — it holds no secrets. The local target is a
+# DuckDB file path; cloud targets resolve credentials through env_var() at runtime.
+
+# ─── Terraform ────────────────────────────────────────────────────────────────
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# ─── Airflow ──────────────────────────────────────────────────────────────────
+airflow.db
+airflow.cfg
+webserver_config.py
+standalone_admin_password.txt
+
+# ─── Node / web app ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+.vite/
+app/dist/
+
+# ─── Notebooks ────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── Editors & OS ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

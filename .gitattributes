@@ -1,0 +1,34 @@
+# Normalize line endings: LF in the repository, native in the working tree.
+# Authored on Windows, run in Linux CI — without this, CI sees CRLF churn.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF so they run correctly when checked out.
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Explicitly text
+*.py    text
+*.sql   text
+*.yml   text
+*.yaml  text
+*.json  text
+*.md    text
+*.toml  text
+*.tf    text
+*.js    text
+*.mjs   text
+*.ts    text
+*.tsx   text
+
+# Binary — never diff or normalize
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.parquet binary
+*.duckdb  binary
+
+# Collapse generated/vendored files in diffs and language stats
+transform/target/**   linguist-generated=true
+uv.lock               linguist-generated=true -diff

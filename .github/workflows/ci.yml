@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch — a new push cancels the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Every job builds against DuckDB. CI needs no cloud credentials, by design.
+  NBA_ENV: local
+
+jobs:
+  python:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Ruff — lint
+        run: uv run ruff check --output-format=github
+
+      - name: Ruff — format
+        run: uv run ruff format --check
+
+      - name: Mypy
+        run: uv run mypy
+
+      - name: Pytest
+        # -m "not network" keeps live API calls out of CI. Fixtures cover the
+        # extraction paths; see tests/fixtures/README.md.
+        run: uv run pytest -m "not network" --cov=nba_platform --cov-report=term-missing
+
+  dbt:
+    name: dbt build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: dbt deps
+        run: uv run dbt deps --project-dir transform --profiles-dir transform
+
+      - name: dbt build
+        # Rebuilds the entire warehouse from seeds and fixtures on in-memory DuckDB
+        # and runs every test. No credentials, no cost, seconds not minutes.
+        run: uv run dbt build --project-dir transform --profiles-dir transform --target ci
+
+      - name: sqlfluff
+        # Skipped while no models exist — sqlfluff errors on an empty selection.
+        run: |
+          if [ -n "$(find transform/models -name '*.sql' -print -quit)" ]; then
+            uv run sqlfluff lint transform/models
+          else
+            echo "No models yet — skipping."
+          fi
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history — a secret removed from HEAD is still a leaked secret.
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

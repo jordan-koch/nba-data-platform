@@ -1,0 +1,42 @@
+[sqlfluff]
+templater = dbt
+# Matches the target CI actually builds against. Revisit when Snowflake lands in Phase 2 —
+# models must run on both, and linting the wrong dialect hides portability breaks.
+dialect = duckdb
+max_line_length = 100
+exclude_rules = [
+    # Column ordering in SELECT is a readability judgment, not a lint.
+    "ST06",
+]
+
+[sqlfluff:templater:dbt]
+project_dir = transform
+profiles_dir = transform
+profile = nba_platform
+target = ci
+
+[sqlfluff:indentation]
+indented_joins = false
+indented_ctes = false
+tab_space_size = 4
+
+[sqlfluff:layout:type:comma]
+line_position = trailing
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:aliasing.table]
+aliasing = explicit
+
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit
+
+[sqlfluff:rules:references.keywords]
+ignore_words = date,name,value,type,percent,rank

@@ -1,0 +1,40 @@
+# Committed deliberately — this file holds no secrets.
+#
+# The `local` target is a DuckDB file under var/ (gitignored). Cloud targets resolve
+# every credential through env_var() at runtime, so nothing sensitive is ever written
+# down here. CI runs against `local` and needs no credentials at all.
+#
+# dbt finds this file because DBT_PROFILES_DIR is set to this directory, or because
+# dbt is invoked from within it.
+
+nba_platform:
+  target: local
+
+  outputs:
+    # ─── Local: no cloud, no cost, no credentials ─────────────────────────────
+    local:
+      type: duckdb
+      path: "../var/warehouse/nba_local.duckdb"
+      threads: 8
+      extensions:
+        - httpfs
+        - parquet
+
+    # ─── CI: ephemeral, in-memory, rebuilt from fixtures every run ────────────
+    ci:
+      type: duckdb
+      path: ":memory:"
+      threads: 4
+
+    # ─── Snowflake (Phase 2) ──────────────────────────────────────────────────
+    # Unused until Phase 2. Left here so the shape is known before the migration.
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', '') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', '') }}"
+      authenticator: externalbrowser
+      role: "{{ env_var('SNOWFLAKE_ROLE', '') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', '') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', '') }}"
+      schema: dbt_dev
+      threads: 8

@@ -1,0 +1,53 @@
+name: nba_platform
+version: "0.1.0"
+config-version: 2
+
+profile: nba_platform
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ─── Medallion layers ─────────────────────────────────────────────────────────
+# Promotion between layers is gated on tests: a layer that fails its tests must not
+# feed the next one. See requests/data-incidents/README.md for why that gate exists.
+models:
+  nba_platform:
+    +persist_docs:
+      relation: true
+      columns: true
+
+    bronze:
+      # Landed payloads, typed and deduplicated. One model per source endpoint,
+      # 1:1 with the raw record. No business logic, no joins, no renaming beyond
+      # casing — if bronze and the landed JSON disagree, bronze is wrong.
+      +schema: bronze
+      +materialized: table
+      +tags: ["bronze"]
+
+    silver:
+      # Conformed dimensional core — SCD2 dimensions and fact tables. This is where
+      # grain is decided and enforced. Every model here declares its grain in its
+      # schema.yml description and proves it with a uniqueness test.
+      +schema: silver
+      +materialized: table
+      +tags: ["silver"]
+
+    gold:
+      # Business-facing marts, shaped for consumption. Aggregated, league-context
+      # enriched, and small enough to publish as Parquet to a CDN.
+      +schema: gold
+      +materialized: table
+      +tags: ["gold"]
+
+# Fail the build on warnings — a warn-level test that nobody looks at is not a test.
+# (`data_tests:` is the current key; `tests:` was renamed in dbt 1.8.)
+data_tests:
+  nba_platform:
+    +severity: error

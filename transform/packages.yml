@@ -1,0 +1,5 @@
+packages:
+  # Surrogate keys, uniqueness-across-columns tests, date spines, pivot helpers.
+  # `unique_combination_of_columns` is how every silver model proves its declared grain.
+  - package: dbt-labs/dbt_utils
+    version: [">=1.1.0", "<2.0.0"]
