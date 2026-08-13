@@ -27,6 +27,7 @@ nba-data-platform/
 ├── .claude/skills/    The four request stages, plus /update-docs (doc gate) and /commit (the committer)
 ├── src/nba_platform/  Extraction + landing (transformation lives in transform/)
 ├── transform/         dbt project — bronze / silver / gold
+├── ops/               Repo governance as code — branch protection + how to restore it
 ├── tests/             pytest + committed API fixtures for offline testing
 └── var/               GITIGNORED — local landing zone, DuckDB files, caches, checkpoints
 ```
@@ -118,6 +119,10 @@ yet — see the roadmap in [`README.md`](README.md).
   cloud money or touches prod is a user-run action, not an agent one.
 - **`pre-commit` means the Python hook framework here**, not a skill. The doc-coherence skill is
   **`/update-docs`**, deliberately named to avoid the collision.
+- **Renaming a CI job silently breaks branch protection.** The required checks in
+  [`ops/branch-protection.json`](ops/branch-protection.json) match job **display names**. Rename one
+  in `ci.yml` without updating that file and PRs wait forever for a check that never reports, with
+  no error saying why. Change both in the same commit.
 - **Windows dev, Linux CI.** `.gitattributes` normalizes to LF. Don't defeat it.
 
 ## How to Help

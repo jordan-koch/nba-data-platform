@@ -74,6 +74,7 @@ Not affiliated with or endorsed by the NBA.
 ├── requests/           Work intake — features, bugfixes, data incidents
 ├── src/nba_platform/   Extraction and landing (transformation lives in transform/)
 ├── transform/          dbt project — bronze / silver / gold
+├── ops/                Repo governance as code — branch protection, applied via gh
 ├── tests/              pytest + committed API fixtures for offline testing
 └── var/                Gitignored — local landing zone, DuckDB files, caches
 ```
