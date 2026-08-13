@@ -1,5 +1,9 @@
 name: CI
 
+# Actions are pinned to exact versions rather than moving major tags: astral-sh/setup-uv
+# publishes no moving major tag past v6, so a mixed style would be inconsistent, and exact
+# pins are reproducible. Dependabot (.github/dependabot.yml) keeps them current.
+
 on:
   push:
     branches: [main]
@@ -23,10 +27,10 @@ jobs:
     name: Lint, types, tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.0.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -52,10 +56,10 @@ jobs:
     name: dbt build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.0.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -84,12 +88,12 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
         with:
           # Full history — a secret removed from HEAD is still a leaked secret.
           fetch-depth: 0
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
