@@ -1,0 +1,27 @@
+version: 2
+
+# Keeps actions and Python dependencies current without anyone remembering to check.
+# The failure mode this exists to prevent: an action pinned to a deprecated runtime
+# that warns for months and then breaks CI on a day nobody expected.
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+    # Patch bumps for a solo project are noise — the lockfile is committed and CI
+    # rebuilds from it, so a broken patch release surfaces on the next real PR anyway.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
