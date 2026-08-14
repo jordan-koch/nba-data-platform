@@ -1,4 +1,4 @@
-> **Status:** scoped · created 2026-08-12 · decided · next: plan
+> **Status:** planned · created 2026-08-12 · decided · next: implement
 
 # Feature Request — Data-Engineer Agent
 
