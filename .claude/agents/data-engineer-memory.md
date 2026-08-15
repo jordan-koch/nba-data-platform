@@ -161,6 +161,33 @@ guessing wrong drops the entry that would have saved them.
   to everything" are distinguishable without knowing the key can be missing. ·
   evidence: `src/nba_platform/landing.py` (`PROVENANCE_KEY`) · tag: `tooling-trap`
 
+- **2026-08-15** · `measured` · **`dbt --project-dir X` does NOT chdir into X.** DuckDB resolves
+  a relative `external_location` (and a relative `profiles.yml` `path:`) against the PROCESS
+  working directory, so a source glob must be written relative to the **repo root** — every
+  sanctioned invocation launches from there. A `../` prefix fails with `IO Error: No files
+  found`, naming a path that looks plausible. Same root cause makes `--target local` unusable
+  from the repo root today. · evidence: `transform/models/bronze/sources.yml` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `.sqlfluff` is INI (configparser), not TOML: a bracketed
+  multi-line `exclude_rules = [ ... ]` raises `ParsingError` on the closing `]` and **no**
+  sqlfluff command can run at all. `--ignore-local-config` is not enough to work around it —
+  path discovery re-reads `.sqlfluff` as an ignore-file source, so you also need
+  `--disregard-sqlfluffignores` plus `--config <good file>`. · evidence:
+  `requests/feature-requests/box-score-foundation/reviews/phase-4-handoff.md` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · DuckDB identifiers are case-insensitive **including struct
+  fields**, so `resultsets[1].rowset` resolves against `read_json_auto`'s camelCase
+  `resultSets`/`rowSet` columns. That matters because `.sqlfluff` enforces lowercase
+  identifiers: writing the envelope decode all-lowercase satisfies the linter with no quoting
+  and no `noqa`. · evidence: `transform/models/bronze/bronze__nba_stats__league_game_log_player.sql`
+  · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · Two `dbt show` papercuts when checking a model by hand: it
+  appends its own `limit`, so an inline query carrying one is a parser error (use `--limit N`),
+  and a bronze column named `min` cannot be selected bare — `select min from t` is a syntax
+  error, `select t.min` works. The second is the ergonomic cost of bronze's no-renaming rule
+  and is silver's to fix. · evidence: `transform/models/bronze/schema.yml` · tag: `tooling-trap`
+
 - **2026-08-15** · `measured` · Serialise **both** documents before opening either handle. The
   writer used to render the manifest inline at its own `open("xb")`, so an unserialisable
   optional field would land a payload with no manifest — an aborted capture — instead of failing

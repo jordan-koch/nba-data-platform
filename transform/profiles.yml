@@ -14,7 +14,15 @@ nba_platform:
     # ─── Local: no cloud, no cost, no credentials ─────────────────────────────
     local:
       type: duckdb
-      path: "../var/warehouse/nba_local.duckdb"
+      # Resolved BY NAME from the same key src/nba_platform/config.py exposes, so the backfill
+      # and dbt cannot disagree about where the warehouse is.
+      #
+      # The default is REPO-ROOT-relative, not transform-relative. `dbt --project-dir transform`
+      # does NOT chdir into transform/ — it resolves relative paths against the process working
+      # directory, and every invocation in this repo (ci.yml, the acceptance commands, the
+      # bronze source seam) runs from the repo root. A `../` prefix here resolves outside the
+      # repo altogether and fails with a path-not-found that names a directory nobody created.
+      path: "{{ env_var('NBA_WAREHOUSE_PATH', 'var/warehouse/nba_local.duckdb') }}"
       threads: 8
       extensions:
         - httpfs

@@ -24,7 +24,12 @@ from typing import Any
 import pytest
 import yaml
 
-from nba_platform.config import ConfigError, get_settings, landing_key
+from nba_platform.config import (
+    WAREHOUSE_PATH_KEY,
+    ConfigError,
+    get_settings,
+    landing_key,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_PACKAGE = REPO_ROOT / "src" / "nba_platform"
@@ -89,23 +94,43 @@ def test_an_overriding_env_var_wins(clean_env: pytest.MonkeyPatch, tmp_path: Pat
     assert settings.landing_root != settings.repo_root / "var" / "landing"
 
 
-def test_warehouse_path_agrees_with_the_dbt_profile(clean_env: pytest.MonkeyPatch) -> None:
-    """config and transform/profiles.yml must name the same DuckDB file.
+def test_the_dbt_profile_resolves_the_warehouse_by_name(clean_env: pytest.MonkeyPatch) -> None:
+    """config and transform/profiles.yml must not be able to disagree about the warehouse.
 
-    Two sources of truth for the warehouse location is how a backfill lands in one file and
-    `dbt build --target local` reads another, with both looking green.
+    Two sources of truth for that path is how a backfill lands in one file and
+    `dbt build --target local` reads another, with both looking green. So the profile does not
+    spell a path at all — it resolves the same environment key `config.py` exposes.
+
+    The `../` assertion is a regression guard for a real defect, not a style rule.
+    `profiles.yml` originally read `../var/warehouse/nba_local.duckdb`, written as though dbt
+    chdirs into the project dir. It does not: `dbt --project-dir transform` resolves relative
+    paths against the process working directory, and every invocation in this repo runs from
+    the repo root. That `../` resolved to a sibling of the repo, so `--target local` failed with
+    a path-not-found naming a directory nobody had ever created — invisible until the first
+    model existed to run against it.
     """
     clean_env.setenv("NBA_ENV", "local")
 
     with (REPO_ROOT / "transform" / "profiles.yml").open(encoding="utf-8") as fh:
         loaded: Any = yaml.safe_load(fh)
     assert isinstance(loaded, dict)
-    profile_path = loaded["nba_platform"]["outputs"]["local"]["path"]
+    profile_path = str(loaded["nba_platform"]["outputs"]["local"]["path"])
 
-    # profiles.yml paths are written relative to the dbt project dir, not the repo root.
-    from_profile = (REPO_ROOT / "transform" / profile_path).resolve()
+    assert WAREHOUSE_PATH_KEY in profile_path, (
+        f"transform/profiles.yml spells a warehouse path directly ({profile_path!r}) instead of "
+        f"resolving {WAREHOUSE_PATH_KEY} by name, so it can drift from the config layer"
+    )
 
-    assert get_settings().warehouse_path == from_profile
+    default = re.search(r"env_var\(\s*'[^']+'\s*,\s*'([^']+)'\s*\)", profile_path)
+    assert default is not None, f"no fallback default found in {profile_path!r}"
+    fallback = default.group(1)
+
+    assert not fallback.startswith("../"), (
+        f"the profile's fallback {fallback!r} is written relative to transform/, but dbt does "
+        "not chdir there - a '../' prefix resolves outside the repo entirely"
+    )
+    # Repo-root-relative, which is where every dbt invocation in this repo is launched from.
+    assert get_settings().warehouse_path == (REPO_ROOT / fallback).resolve()
 
 
 def test_pacing_and_retries_come_from_the_environment(clean_env: pytest.MonkeyPatch) -> None:
