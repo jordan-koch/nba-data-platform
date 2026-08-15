@@ -123,6 +123,11 @@ itself. No dataset, no model, no extraction code.
 
 Read first, in this order:
 
+0. [`box-score-foundation/reviews/dispatch-split.md`](../box-score-foundation/reviews/dispatch-split.md)
+   — **the manual version of the thing this request automates.** 30 acceptance criteria routed by
+   hand, three boundary rulings, written before the first dispatch. Read alongside
+   [`IMPLEMENTATION_REPORT.md`](../box-score-foundation/IMPLEMENTATION_REPORT.md) §3, where the
+   plan's own dispatch assumption is recorded as a deviation because it was wrong.
 1. [`PROJECT_SCOPE.md`](../data-engineer-agent/PROJECT_SCOPE.md) — the *Sequel* section is the
    original design sketch; Decision 13 is why this is a separate request.
 2. [`reviews/harness-probe.md`](../data-engineer-agent/reviews/harness-probe.md) — answer 7 and
@@ -158,12 +163,75 @@ Read first, in this order:
 - **Renaming a CI job silently breaks branch protection** — not expected here, but this request
   touches skill wiring near it.
 
-## Open Questions for Scoping
+## Worked example — `box-score-foundation` ran the manual version, end to end
+
+**Added 2026-08-15, after this request was written.** The Motivation above predicted that
+`box-score-foundation` would be *"the first request large enough to exhaust a context"* and warned
+that *"arriving there without dispatch means the agent gets used under pressure, or not at all."*
+
+It arrived, and it shipped — **11 phases, 96 files, +11,864 lines, merged as PR #5.** The agent was
+used, deliberately and throughout, with every routing decision made **by hand**. That makes the
+whole build a worked example of the process this request wants to automate, and several of the
+Open Questions below move from speculation to measurement because of it.
+
+**The dispatch record**, all committed under
+[`box-score-foundation/reviews/`](../box-score-foundation/reviews/): **nine spawns plus two
+resumptions**, producing **ten handoffs** (109–120 lines, every one conforming to the return
+contract). Plus one hand-written routing table,
+[`dispatch-split.md`](../box-score-foundation/reviews/dispatch-split.md) — 30 acceptance criteria
+assigned to *agent* / *main-thread* / *user-run*, with three boundary rulings, written before the
+first dispatch because gated decision P7 made an unambiguous split a hard gate.
+
+**That document is the artifact to read first when scoping.** It is, in substance, a manual
+execution of the routing table this request proposes to build — and it took real effort, which is
+the cost being targeted.
+
+### What the run measured
+
+**Every phase split. Not one was purely agent-buildable.** All nine dispatches needed a
+hand-written agent/main-thread boundary in the spec. There was never a phase where "hand the whole
+thing over" was correct, and never one where "build it all in-thread" was either.
+
+**Three carve-outs emerged that the recorded sketch does not name**, and all three are *action*
+boundaries rather than path boundaries:
+
+- **Network calls.** `uv lock` / `uv sync` resolve against PyPI, so they are the same class of call
+  the rulebook already forbids via `dbt deps`. The plan's own §2.7 put `pyproject.toml`/`uv.lock` on
+  the agent's surface and was **wrong**; it was corrected at Phase 0 and recorded as a deviation.
+- **Live extraction.** Fixture capture and the completion probe hit `stats.nba.com`, so Phase 3 was
+  main-thread even though `src/nba_platform/fixtures.py` — the recorder it uses — is agent-built.
+  The *tool* routed to the agent; *pulling the trigger* did not.
+- **Anything the agent must not be able to edit and then report green on.** All of `tests/`.
+
+A path-only routing rule decides none of these three, because the deciding factor is what the work
+*does*, not where it writes.
+
+**The deny set held against a wrong spec — mine.** In Phase 7 the dispatch instructed the agent to
+mutate a file under `tests/fixtures/` for a negative check. It **refused**, correctly ranking its
+deny set above the instruction, and produced equivalent evidence against a scratch copy with
+`NBA_LANDING_ROOT` repointed. The guard caught a main-thread error, which is the direction of
+failure nobody plans for. Recorded in
+[`phase-7-handoff.md`](../box-score-foundation/reviews/phase-7-handoff.md).
+
+**The `AREA_TO_SPEC` gap was hit exactly as described.** The acceptance panel was launched with
+`skills` passed alongside `agents` by hand, because `agents` alone resolves to zero specialists
+silently. The mitigation sentence works — and it only works because a human read it.
+
+**Handoff quality was not the bottleneck.** Ten handoffs, none over the 120-line cap, every
+`verified` row citing a real command and its output. Two of them corrected the main thread's own
+spec on measured grounds. The return contract is doing its job; the routing is what was manual.
 
 1. **Allowlist or deny set — which is the routing input?** The recorded sketch says allowlist;
    grounding shows the allowlist contains a placeholder that makes the subset test vacuous.
    Invert to the deny set, fix the allowlist block to be genuinely enumerable, or use both?
    This is the central design question and everything else follows from it.
+
+   > **Evidence from the worked example.** The deny set did all the work; the allowlist decided
+   > nothing, exactly as the vacuity argument predicts. But **neither** would have routed the run
+   > correctly on its own, because three of the boundaries that actually mattered were *actions*,
+   > not paths — network calls, live extraction, and `dbt deps`. Those are already enumerated in
+   > the definition, but under `## Tool allowlist`, not under either path list. Scoping should
+   > consider whether the routing input is *two* sections rather than one.
 
 2. **Where does the routing rule live?** Prose in `SKILL.md` that an agent follows, a pure
    function in `tests/` that CI can prove, or a shared module the skill reads? The repo's own
@@ -174,6 +242,12 @@ Read first, in this order:
    files-to-touch checklist as a Markdown table. Is that parsed, or does dispatch need a
    declared machine-readable field the planning stage must emit? If the latter, stage 3's
    template changes too, and that widens this request.
+
+   > **Evidence from the worked example.** §7 was never parsed, and would not have been usable if
+   > it had been. It is a **whole-plan** list, while every dispatch needed a **per-phase** target
+   > set — so the paths handed to each agent were derived by hand from that phase's §3 steps, not
+   > read off §7. §7's granularity and dispatch's granularity are different, which is the same
+   > finding as Q7 approached from the other side.
 
 4. **What are the carve-out boundaries?** *Default builder with carve-outs* is decided, and
    three are named — denied paths, trivial edits, fixing the agent's own output. "Trivial" is
@@ -192,3 +266,23 @@ Read first, in this order:
 7. **What happens when a plan has phases that route differently?** A plan whose Phase 2 is
    agent-eligible and Phase 3 is not — does dispatch decide per phase or once per plan? The
    predecessor's own plan is a worked example: it would have split.
+
+   > **Answered empirically, and more strongly than the question assumes.** It is not that *some*
+   > plans split — **every phase of an 11-phase plan split**, and so did the routing *within*
+   > several of them. Phase 3 is the sharpest case: `src/nba_platform/fixtures.py` was agent-built
+   > while the capture that runs it was main-thread, because the tool is a path and pulling the
+   > trigger is an action. "Once per plan" was never viable. Per-phase was the working granularity,
+   > and even that needed a hand-written split inside each spec.
+
+8. **Is a follow-up dispatch to a still-warm agent a different case?** Not in the original list,
+   and it came up twice. Two of the nine dispatches were **resumptions** of an agent that had
+   already finished — sent back to fix something found after its handoff, with its context intact
+   ([`phase-3b-handoff.md`](../box-score-foundation/reviews/phase-3b-handoff.md) and the Phase 5
+   test rewrite). Both were markedly cheaper than a fresh spawn would have been, because the agent
+   already knew the code.
+
+   That sits awkwardly against the recorded constraint **"spawn from a fresh session"**, which
+   exists because a subagent's inherited `CLAUDE.md` is a snapshot frozen at its parent's start.
+   A resumption inherits an even older snapshot. Neither resumption went wrong here — but both
+   were judgment calls a routing rule would have to make explicitly, and the constraint as written
+   does not cover them.
