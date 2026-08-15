@@ -4,10 +4,11 @@ What this project can get, what it can't, and what breaks.
 
 > **Epistemic status.** Everything below is marked `verified` (someone called it and looked at
 > the response), `documented` (stated by the source's own docs or widely-used client code), or
-> `unconfirmed` (believed true, never checked here). **As of Phase 0, no endpoint has been
-> called from this repo** — the catalog is `unconfirmed` throughout and exists to shape the
-> first feature request, not to be built on. Confirming it is the first task of
-> `box-score-foundation`.
+> `unconfirmed` (believed true, never checked here). **One endpoint has now been called from
+> this repo** — `leaguegamelog`, during `box-score-foundation`'s Gate 0 probe on 2026-08-14 —
+> and its claims below are promoted to `verified`. **Everything else remains `unconfirmed`**
+> and exists to shape a feature request rather than to be built on. Promotion is deliberate and
+> per-endpoint: a claim is only `verified` for what was actually called.
 
 ## The source
 
@@ -43,9 +44,24 @@ The single most consequential extraction decision.
 | Per-game box scores (`boxscore*` family) | ~30,000 games × 2 endpoints ≈ **60,000** | ~10 hours |
 | Season-wide bulk (`leaguegamelog` family) | ~2 grains × 23 seasons ≈ **50** | under a minute |
 
-`unconfirmed` — `leaguegamelog` is believed to return every player-game or team-game for an
-entire season in one response. If that holds, the box-score foundation is a minutes-long
-backfill rather than an overnight one.
+`verified` — **it holds.** `leaguegamelog` returns every player-game or team-game for an entire
+season in one response, at both grains. Measured 2026-08-14 via `nba_api`, four calls at 0.6s
+pacing:
+
+| Season | Grain | Rows | Distinct `GAME_ID` | Duplicate `(GAME_ID, PLAYER_ID)` |
+|---|---|---|---|---|
+| 2023-24 | player | 26,401 | 1,230 | 0 |
+| 2023-24 | team | 2,460 | 1,230 | — |
+| 2003-04 | player | 23,894 | 1,189 | 0 |
+| 2003-04 | team | 2,378 | 1,189 | — |
+
+The counts are internally consistent: 2,460 = 1,230 games × 2 teams, and 2003-04 returns 1,189
+games because the league had 29 teams that season. So the box-score foundation is a minutes-long
+backfill — ~6 calls for the three-season pilot, ~46 for the full range — not an overnight one.
+
+**Verified for the regular season at these two seasons only.** Playoffs were not called, and the
+other twenty-one seasons are inferred from these. Evidence:
+`requests/feature-requests/box-score-foundation/reviews/gate-0-endpoint-probe.md`.
 
 Per-game endpoints only become necessary for play-by-play and shot detail, which have no bulk
 equivalent. Those are Phase 5, and they are where the rate-limit engineering actually earns its

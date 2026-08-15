@@ -38,11 +38,12 @@ yet — see the roadmap in [`README.md`](README.md).
 
 ## Important Locations
 
-- **[docs/decisions/](docs/decisions/)** — start here. Six ADRs cover the scope range, the
-  storage substrate, the engine choice, the serving layer, and why the repo is public.
+- **[docs/decisions/](docs/decisions/)** — start here. Seven ADRs cover the scope range, the
+  storage substrate, the engine choice, the serving layer, why the repo is public, and the
+  write-capable implementation subagent.
 - **[docs/data-sources.md](docs/data-sources.md)** — what's available, from when, and what
-  breaks. **Everything in it is currently `unconfirmed`** — no endpoint has been called from
-  this repo. Confirming it is the first task of the first feature request.
+  breaks. **One endpoint is `verified`** — `leaguegamelog`, by `box-score-foundation`'s Gate 0
+  probe. **The rest is still `unconfirmed`**: check the label before building on a claim.
 - **[requests/README.md](requests/README.md)** — the intake contract and the three-track split.
   Each track's README is authoritative for its own layout and status grammar.
 - **[transform/models/](transform/models/)** — each medallion layer carries a README stating

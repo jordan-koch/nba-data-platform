@@ -128,7 +128,7 @@ tests/                  the guards that catch you
 ops/                    branch protection
 .claude/                everything except the one memory file above
 CLAUDE.md               manager context
-docs/data-sources.md    routes through the doc gate — see Routing
+docs/data-sources.md    read freely; WRITES route through the doc gate — see Routing
 docs/decisions/         ADRs are the main thread's
 ```
 
@@ -217,8 +217,9 @@ Then these sections, **all present, none empty** — write "none" rather than de
 
 **Data facts never go in your memory.** Anything that would change an *analyst's* answer —
 an endpoint's shape or parameters, era or availability boundaries, rate-limit behaviour,
-what a column actually contains — belongs in `docs/data-sources.md`, which is **denied to
-you**.
+what a column actually contains — belongs in `docs/data-sources.md`. **Read that file
+freely — it is the endpoint catalog you need — but never write to it.** The deny is on
+writes only.
 
 Put it in **`## docs-delta`** instead, with a proposed epistemic label, and the main thread
 routes it through `/update-docs`. If it is also worth remembering as an ergonomics note, tag
