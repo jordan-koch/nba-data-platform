@@ -1,0 +1,193 @@
+version: 2
+
+# The conformed dimensional core, one model at a time. Every model here states its grain in
+# PROSE below and PROVES it with a uniqueness test whose columns agree with that prose -- a grain
+# claimed but not tested is a grain that will quietly break, and the two disagreeing is worse
+# than neither existing. See `transform/models/silver/README.md`.
+#
+# Generic-test arguments nest under `arguments:` (dbt 1.10 deprecated passing them at the top
+# level) and the key is `data_tests:` (which replaced `tests:` in dbt 1.8). `dbt_project.yml`
+# sets `+severity: error`, so a deprecation warning is a RED build, not a note.
+#
+# `+persist_docs` is on for relations and columns, so every description here is written onto the
+# DuckDB relation itself. That is deliberate: the caveats below are the kind that get lost when
+# they live only in a plan document.
+
+models:
+  - name: dim_game
+    description: >-
+      GRAIN: one row per `game_id`. The team-grain payload carries two rows per game -- one per
+      side -- and they collapse to one row here.
+
+
+      HOME AND AWAY ARE DERIVED, NOT GIVEN. `MATCHUP` is the only signal the endpoint carries:
+      `DAL vs. LAL` is the home side, `DAL @ LAL` the away side. Deriving that is business logic,
+      so it happens here and never in bronze, and it is proved by
+      `transform/tests/assert_every_game_has_exactly_two_teams.sql` rather than assumed.
+
+
+      READ `home_team_id` AS A SCHEDULING DESIGNATION, NOT AS A VENUE FACT. It says which team
+      the league listed as host, which is not the same claim as "played in their own arena".
+      Every one of the 1,059 games in the 2019-20 season was physically played at a single
+      neutral site in Orlando and every one of them still carries a designated home team. A model
+      that reads home/away as a venue -- home-court advantage, travel distance, altitude, crowd
+      -- is wrong for all 1,059, and will be wrong again for any future neutral-site or
+      international game the league designates a host for.
+
+
+      NEUTRAL-SITE GAMES ARE THE CASE WHERE THE SOURCE DESIGNATES NO HOST AT ALL. Five 2024-25
+      games carry ` @ ` on both team rows; for those `is_neutral_site` is true and both team ids
+      are NULL. No home team is invented to fill them in.
+
+
+      SEASON TYPE IS CARRIED FROM DAY ONE even though only the regular season has been
+      extracted, so playoffs arrive later as new ROWS rather than as a schema migration.
+    columns:
+      - name: game_id
+        description: >-
+          Zero-padded 10-character game identifier, VARCHAR, carried through from bronze
+          unchanged. This is the dimension's key and the grain the prose above declares.
+        data_tests:
+          - unique
+          - not_null
+      - name: game_date
+        description: >-
+          Date the game was played. `dim_date` is deliberately out of this slice, so this is the
+          date column every downstream calendar question resolves through.
+        data_tests:
+          - not_null
+      - name: season_id
+        description: >-
+          The payload's own season identifier, e.g. `22019` -- a leading digit encoding season
+          type followed by the four-digit season start year. Carried as VARCHAR because it is
+          zero-padded.
+        data_tests:
+          - not_null
+      - name: season_type
+        description: >-
+          Season type decoded from `season_id`'s leading digit. `2` -> `Regular Season` is
+          VERIFIED for this corpus (every landed row was pulled with `SeasonType=Regular Season`
+          and every `season_id` in it starts with `2`); `4` -> `Playoffs` is INFERRED from
+          stats.nba.com convention and unverified here, since no playoff game has been landed.
+          Any other leading digit resolves to NULL on purpose, so the `not_null` test below turns
+          a newly landed season type into a red build asking for a decision rather than a guess.
+        data_tests:
+          - not_null
+      - name: is_neutral_site
+        description: >-
+          True when the source designated NO home team -- both of the game's team rows read
+          ` @ `. Measured across the pilot: five 2024-25 games, none in 2003-04 or 2019-20. Note
+          the asymmetry with the caveat on this model: false does NOT mean the game was played in
+          the designated home team's arena, it means a host was designated.
+        data_tests:
+          - not_null
+      - name: home_team_id
+        description: >-
+          The team designated home, from the ` vs. ` side of `MATCHUP`. NULL for neutral-site
+          games, where the source designates neither side, and NULL for any game whose two rows
+          do not resolve to exactly one home and one away -- an unresolvable shape is left empty
+          rather than guessed, and the singular test turns it red.
+      - name: away_team_id
+        description: >-
+          The team designated away, from the ` @ ` side of `MATCHUP`. NULL under exactly the same
+          conditions as `home_team_id`, including for neutral-site games, where BOTH rows read
+          ` @ ` and choosing one of them would be arbitrary.
+
+  - name: fact_player_game
+    description: >-
+      GRAIN: one row per player per game, keyed `(game_id, player_id)`. A player traded
+      mid-season appears under the team he played THAT GAME for -- team affiliation resolves
+      as-of the game date, not as-of today.
+
+
+      `team_id` IS THE OBSERVED VALUE ON THE BOX-SCORE ROW and comes from nowhere else: not from
+      `dim_team`, and above all not from the SCD2 stint model, which is DERIVED FROM this fact.
+      Joining back to it would make fact correctness depend on the interpolation the fact is the
+      evidence for.
+
+
+      MATERIALIZATION IS A DECLARED DIVERGENCE, NOT DRIFT. Facts in this layer are MERGE-on-key
+      by rule -- box scores get restated days later, so nightly runs re-pull a trailing window
+      rather than only yesterday (`CLAUDE.md`; `transform/models/silver/README.md` lines 47-48).
+      This model is full-refresh because all three pilot seasons are long finalized and a full
+      rebuild is seconds. THE FIRST IN-PROGRESS SEASON, OR THE FIRST NIGHTLY RUN, REQUIRES MERGE
+      FIRST. `unique_key` is already declared in the model's config so that switch is
+      configuration rather than a rewrite.
+
+
+      COVERAGE is players who APPEARED in a game's box score. A player who dressed and did not
+      play has no row here, and the absence of a row is not a zero.
+
+
+      ERA COVERAGE: no tracking-derived column appears on this endpoint at any grain, so the
+      2013-14 tracking boundary does not bite this model. The irregular seasons (2011-12,
+      2019-20, 2020-21) are a row-count property here, not a schema one -- nothing in this model
+      assumes 82 games or an October-April calendar.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [game_id, player_id]
+    columns:
+      - name: game_id
+        description: The game this line belongs to. Joins to `dim_game.game_id`.
+        data_tests:
+          - not_null
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`. Identity is stable across a career; team AFFILIATION is not, which
+          is why `team_id` below is read off this same row.
+        data_tests:
+          - not_null
+      - name: team_id
+        description: >-
+          The team the player appeared for IN THIS GAME, copied from the observed box-score row.
+          Resolving affiliation as-of today rather than as-of the game date is this project's
+          likeliest silent join bug, and reading it from the row is what forecloses it here.
+        data_tests:
+          - not_null
+      - name: minutes_played
+        description: >-
+          Minutes played, an INTEGER count on this endpoint rather than `MM:SS`. Renamed from
+          bronze's `min` -- semantic renaming is silver's job, and a column named `min` cannot be
+          selected bare in DuckDB. Rounded to whole minutes at the source, so a team's twelve
+          player values do not re-sum to its exact team total.
+      - name: fgm
+        description: Field goals made.
+      - name: fga
+        description: Field goals attempted. Never less than `fgm`, asserted as a singular test.
+      - name: fg_pct
+        description: Field-goal percentage as the endpoint computed it. NULL on zero attempts.
+      - name: fg3m
+        description: Three-point field goals made.
+      - name: fg3a
+        description: Three-point field goals attempted.
+      - name: fg3_pct
+        description: Three-point percentage. NULL on zero attempts -- a real null, not zero.
+      - name: ftm
+        description: Free throws made.
+      - name: fta
+        description: Free throws attempted.
+      - name: ft_pct
+        description: Free-throw percentage. NULL on zero attempts.
+      - name: oreb
+        description: Offensive rebounds.
+      - name: dreb
+        description: Defensive rebounds.
+      - name: reb
+        description: Total rebounds.
+      - name: ast
+        description: Assists.
+      - name: stl
+        description: Steals.
+      - name: blk
+        description: Blocks.
+      - name: tov
+        description: Turnovers.
+      - name: pf
+        description: Personal fouls.
+      - name: pts
+        description: Points scored.
+      - name: plus_minus
+        description: >-
+          Team point differential while this player was on the floor. Present with zero nulls
+          back to 2003-04 on this endpoint, which is why bronze tests it `not_null`.

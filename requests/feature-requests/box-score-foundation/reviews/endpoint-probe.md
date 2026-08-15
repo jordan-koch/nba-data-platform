@@ -246,11 +246,44 @@ Population context: **81 players appear for more than one team in 2024-25** and 
 |---|---|---|
 | Team game counts | **64–75**, nine distinct values | 82 for all 30 |
 | `GAME_DATE` range | 2019-10-22 .. **2020-08-14** | 2024-10-22 .. 2025-04-13 |
-| Games outside an Oct–Apr window | **176** | 0 |
+| Games outside an Oct–Apr window | **88** (8 in July, 80 in August) | 0 |
+
+> **Correction, 2026-08-15.** Gate 0's completion probe recorded **176** here, and this artifact
+> repeated it. That number counts team **rows**, not games — every game has two — so the correct
+> figure is **88 distinct `game_id`s**, re-measured against the built bronze model with
+> `count(distinct game_id)` and a window of exactly `month not in (10,11,12,1,2,3,4)`. Gated
+> decision P5 in `IMPLEMENTATION_PLAN.md` carries the same 176 and inherits this correction. The
+> committed 2019-20 fixture retains **3** out-of-window games, so the CI assertion is non-vacuous.
 
 Confirms P5. The unequal-game-count half cannot survive whole-games fixture trimming and stays
 deferred to the `--target local` run; the outside-the-window half does survive and is asserted in CI
 with a row-count floor.
+
+## Team minutes — the conditional fold, measured and DROPPED
+
+`PROJECT_SCOPE.md:280` folds in a team-minutes reconciliation *conditional on Gate 0 settling the
+`MIN` format*, and the plan says that if the format makes it unrecoverable, **skip it and say so in
+writing rather than skipping it quietly.** This is that writing.
+
+Measured against the built bronze models over all three real pilot seasons:
+
+| Check | Result |
+|---|---|
+| `sum(player.min)` equals `team.min` | **4,069 of 6,956 team-games — 58.5%** |
+| `team.min` is exactly `240 + 25n` | **6,956 of 6,956 — 100%** (240, 265, 290, 315) |
+
+**The player-grain reconciliation is not expressible, and the reason is rounding, not a data
+error.** `MIN` is an integer at *both* grains, so each player's minutes are rounded to a whole
+number before this project ever sees them. Summing twelve or thirteen rounded values does not
+reproduce the exact team total, and no parse can recover the discarded fractions. A test asserting
+`sum(player.min) = 240 + 25 * ot` would fail on 41.5% of correct data.
+
+**What replaces it is stronger than nothing and honest about what it proves.** Team-grain minutes
+*are* exact: every team-game in the pilot is a clean regulation-plus-overtime total. So the slice
+asserts `(team.min - 240) % 25 = 0 and team.min >= 240` instead. That still validates the `MIN`
+parse — a `MM:SS` string misread as a number, or a unit mix-up, breaks it immediately — and it is
+non-vacuous at 6,956 team-games. It simply does not cross the grain boundary, which is the thing
+the original could not do either.
 
 ## Still unsettled after this probe
 

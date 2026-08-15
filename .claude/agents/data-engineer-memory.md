@@ -135,6 +135,23 @@ would cost the next session real time.
   instead of failing clean. Any writer taking caller-supplied JSON wants this ordering. ·
   evidence: `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`
 
+- **2026-08-15** · `measured` · **`dbt test --select X --target ci` can never pass here** — `ci` is
+  `:memory:`, so a test-only process has no relations and every test ERRORs on a missing schema.
+  Nor does `dbt build --select +X --target ci` help: indirect test selection is EAGER, so singular
+  tests referencing unselected models get pulled in and error. Use `--target local`, or build all. ·
+  evidence: reproduces on Phase-5-only `--select bronze__..._player` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · dbt 1.12 accepts `unique_key` on a `table` materialization silently
+  — no warning, and it lands in `manifest.json` under `config.unique_key`. So "declare the merge key
+  now, switch to incremental later" is a real config-only path, not wishful. · evidence:
+  `transform/models/silver/fact_player_game.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · Two probe traps when checking `+persist_docs` output. DuckDB `like`
+  is CASE-SENSITIVE, so probing a persisted description for a sentence written in caps returns False
+  and reads exactly like a missing sentence — use `ilike`. And `dbt show` elides trailing COLUMNS
+  with `...`, so a wide select silently hides the numbers you ran it for. · evidence:
+  `transform/models/silver/schema.yml` · tag: `tooling-trap`
+
 - **2026-08-15** · `measured` · Comparing rows without enumerating columns: `to_json(t)` renders
   a row, `json_extract_string(j, 'col')` takes a bare key, and two `unnest()`s in one select
   **zip elementwise**. Normalise with `coalesce(cast(try_cast(v as double) as varchar), v)` so
