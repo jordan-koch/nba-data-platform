@@ -69,6 +69,14 @@ The stop-branch does not fire. Three data contracts are settled by measurement: 
 2003-04 with zero nulls**, so the 2013-14 tracking boundary **does not bite this request at all**;
 and the return shape is a pandas `DataFrame` with `UPPER_SNAKE` columns.
 
+**Already done at scoping time — do not re-plan these.** Because the evidence existed, the
+`leaguegamelog` claim in `docs/data-sources.md` was promoted from `unconfirmed` to **`verified`**
+in the scoping commit, per-endpoint rather than blanket, and the two statements Gate 0 falsified
+were corrected: that file's Phase 0 epistemic blockquote, and `CLAUDE.md`'s copy of the same
+"no endpoint has been called" claim. **Still outstanding** and belonging to the build: decision
+#10's dangling `docs/data-dictionary.md` reference, and any *further* label promotion the build
+earns — both main-thread `/update-docs` steps, because that path is write-denied to the agent.
+
 > **A correction the plan must inherit.** The panel recorded, as `MEASURED` and independently
 > reproduced, that `stats.nba.com` does not respond from this environment — and marked Gate 0, the
 > backfill and the fixture capture **USER-RUN** on that basis, affecting four acceptance criteria.

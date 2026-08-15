@@ -114,3 +114,72 @@ pilot range.
   behaves over a sustained backfill. The 0.6s default stands unchallenged and untested.
 - **No landing-zone or fixture work was done.** This probe wrote no files. Fixture capture is
   the plan's job.
+
+## Completion probe — 2026-08-15
+
+The planning panel caught a real gap in the run above: **the pilot is 2003-04 / 2019-20 /
+2024-25, and the first probe called 2003-04 and 2023-24.** 2023-24 is not a pilot season, and
+2019-20 — the bubble, the season most likely to break a calendar assumption — was never called.
+So the original evidence covered **one** of three pilot seasons, not two.
+
+Corrected here. Five more calls at 0.6s pacing, same read-only posture, nothing written.
+
+### The two missing pilot seasons
+
+| Season | Grain | Rows | Games | Dupe `(GAME_ID, PLAYER_ID)` |
+|---|---|---|---|---|
+| 2019-20 | team | 2,118 | 1,059 | — |
+| 2019-20 | player | 22,393 | 1,059 | **0** |
+| 2024-25 | team | 2,460 | 1,230 | — |
+| 2024-25 | player | 26,306 | 1,230 | **0** |
+
+**All three pilot seasons now show zero duplicates** on the presumed grain — a normal season, a
+trade-heavy one, and the bubble.
+
+**The bubble behaves as the docs warn, and it is measurable.** 2019-20 team game counts run
+**64 to 75 — unequal**, `GAME_DATE` spans 2019-10-22 to **2020-08-14**, and **176 games fall
+outside an Oct–Apr window**. 2024-25 is the control: 82/82, zero outside the window. Any code
+assuming 82 games or an Oct–Apr calendar breaks on the first, not the second.
+
+### The envelope questions the panel flagged
+
+- **`GAME_ID` is a zero-padded 10-character STRING** — `'0021900002'`, `type=str`. Casting it to
+  an integer destroys the key and silently collides `002...` with `2...`.
+- **`MIN` is `int64`, not `MM:SS`.** 240 at team grain (5 players × 48 minutes), 21–26 at player
+  grain. No string parsing is needed, and none should be written.
+- **DNP-but-active players DO get a row**, carrying `MIN == 0`: 81 such rows in 2019-20, 100 in
+  2024-25. Bronze must not filter them — `transform/models/bronze/README.md` forbids filtering,
+  and these rows are evidence rather than noise.
+- **Within a season, `(TEAM_ID, TEAM_NAME)` is 1:1** — 30 pairs against 30 ids, in both seasons.
+  Franchise-identity drift is therefore strictly a **cross-season** problem, which is what
+  `dim_team`'s grain turns on. The cross-season pair count is still unmeasured.
+
+### Decision 8 — the raw-JSON accessor · `verified`
+
+The first probe only exercised `get_data_frames()[0]`, leaving Decision 8's "land raw JSON, not
+a DataFrame round-trip" unverified. It is satisfiable:
+
+~~~
+ep.get_dict()  -> {'resource', 'parameters', 'resultSets'}
+                  resultSets[0] -> {'name', 'headers', 'rowSet'}
+                  headers[:6] = ['SEASON_ID','TEAM_ID','TEAM_ABBREVIATION','TEAM_NAME','GAME_ID','GAME_DATE']
+                  rowSet len  = 2460
+ep.get_json()  -> str, and json.loads(get_json()) == get_dict()  -> True
+~~~
+
+Also present: `get_normalized_dict`, `get_normalized_json`, `get_response`, `nba_response`.
+
+**One honest limit.** `get_json()` round-tripping to `get_dict()` means it is a re-serialization
+of the parsed body, not the literal wire bytes. It preserves the NBA envelope — which is what
+Decision 8 protects against, a *pandas* round-trip — but it is not byte-identical to the
+response. If byte fidelity is ever required, `get_response()` / `nba_response` are the surfaces
+to investigate. Not investigated here.
+
+### Still unsettled after both probes
+
+- **Playoffs.** `season_type_all_star='Playoffs'` has never been called, at any grain.
+- **Rate limiting.** Ten calls total across both probes. That says nothing about sustained
+  backfill behaviour, which is why the rate-limit paragraph in `docs/data-sources.md` keeps its
+  `unconfirmed` label (gated decision 3).
+- **Cross-season franchise drift.** Measured within seasons only.
+- **The other twenty seasons.** Three probed, twenty-three in range.

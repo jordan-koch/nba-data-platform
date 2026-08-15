@@ -97,5 +97,5 @@ Every artifact opens with a status blockquote:
 
 | Feature | Stage | Notes |
 |---|---|---|
-| [box-score-foundation](box-score-foundation/) | scoped | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Gate 0 **verified** the `leaguegamelog` bulk-endpoint belief (one call = one season, both grains); derives SCD2 player-team affiliation from observed box scores, in its own stint model. |
+| [box-score-foundation](box-score-foundation/) | planned | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Gate 0 **verified** the `leaguegamelog` bulk-endpoint belief (one call = one season, both grains, all three pilot seasons); derives SCD2 player-team affiliation from observed box scores, in its own stint model. 11 phases. |
 | [data-engineer-agent](data-engineer-agent/) | implemented | **Tooling, not pipeline** — the feature *is* a subagent that owns implementation work, with its own definition and an editable memory file. Would be the repo's first write-capable subagent. |
