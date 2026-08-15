@@ -2,7 +2,9 @@
 name: update-docs
 description: >-
   Bring the project's documentation back into agreement with the repo that now exists — the
-  judgment half of the commit gate, called by /commit or run on its own. Checks that CLAUDE.md's map and
+  judgment half of the commit gate, called by /commit or run on its own. Owns the ONLY curation of
+  the data-engineer memory file, whose ~120-line target is enforced here by judgment and not by any
+  test. Checks that CLAUDE.md's map and
   rules still describe reality, that README.md's status/roadmap/setup are still true, that no
   accepted ADR was silently invalidated, that docs/data-sources.md's epistemic labels reflect what
   has actually been verified, that every silver model's documented grain matches a test that proves
@@ -86,14 +88,24 @@ Work through these against the diff. Each is a question a machine can't answer.
   both checks lives in `tests/test_agent_contract.py`; this is the judgment half.
 - **Constraints & Gotchas.** Did this change discover a new trap, or retire an existing one? This
   section is the repo's scar tissue — it should grow when something bites.
-- **The line budget.** `CLAUDE.md` stays **under 200 physical lines**, and
-  `.claude/agents/data-engineer-memory.md` at or under **120**. Both are enforced mechanically by
+- **The line budget.** `CLAUDE.md` stays **under 200 physical lines**, enforced mechanically by
   `tests/test_agent_contract.py`, **which is the authority** — it counts *physical* lines
   (`len(text.splitlines())`), so blank lines count. Do **not** check with
   `(Get-Content CLAUDE.md | Measure-Object -Line).Lines`: that drops blank lines and reports ~18
   fewer, and two checks of one budget disagreeing is how a real red check gets waved through as
   broken. If you want a local count, use `(Get-Content CLAUDE.md).Count`. Over budget means
   cutting, not reformatting — the file is a map, and a map that takes an hour to read is not a map.
+- **The memory file's curation target is YOURS, not CI's.** `.claude/agents/data-engineer-memory.md`
+  should come back to **~120 physical lines** before work merges. The mechanical guard only catches
+  a runaway at **250**, deliberately: a hard stop at the target makes the main thread prune
+  *reactively* mid-build, guessing which entries the remaining phases still need — and guessing
+  wrong drops the one that would have saved them. So the agent appends freely while it works and
+  **this gate is where the file gets curated**, once, with the whole build visible.
+  Read every entry and ask, per entry: is this still true, is it ergonomics rather than a data fact
+  (those route to `docs/data-sources.md`), and would the next session be worse off without it?
+  Prefer cutting entries whose lesson is now encoded in code or a test that will fail without it —
+  those are self-enforcing and no longer need remembering. **Say what you cut and why**; the
+  entries stay recoverable from history, but only if the commit message names them.
 
 ### README.md — is it still true?
 

@@ -49,5 +49,5 @@ These are known and deliberate, not discovered later:
 
 ## Naming
 
-- Dimensions: `dim_<entity>` — `dim_player`, `dim_team`, `dim_game`, `dim_date`
+- Dimensions: `dim_<entity>` — `dim_player`, `dim_team`, `dim_game`, `dim_player_team_stint`
 - Facts: `fact_<grain>` — `fact_player_game`, `fact_team_game`

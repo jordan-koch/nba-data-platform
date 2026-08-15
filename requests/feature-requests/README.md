@@ -69,9 +69,18 @@ feature-requests/
     PROJECT_SCOPE.md           # stage 2
     IMPLEMENTATION_PLAN.md     # stage 3
     IMPLEMENTATION_REPORT.md   # stage 4 — acceptance ledger + what shipped
-    reviews/                   # panel working files — the provenance trail
+    reviews/                   # evidence (tracked) + panel working files (gitignored)
   _done/<slug>/                # archived once it reaches a terminal stage
 ```
+
+**What in `reviews/` is tracked.** Evidence is: probe results, agent handoffs, tree-integrity
+records, verification write-ups. Those are what a criterion is proven *by*, so they are committed
+and CI sees them. The panels' raw serialized output — `*-proposals.md` and `*-adversarial.md`,
+often 100 KB+ each — is **gitignored working material**, because everything the final artifact
+depends on is carried verbatim *into* that artifact, which therefore stands alone in a fresh
+clone. Reference the ignored files as **inline code, never as Markdown links**: they are absent
+from a clone, and `tests/test_doc_links.py` is not gitignore-aware, so a link to one passes
+locally and fails in CI.
 
 **Active-vs-done.** An item lives at the track root while in flight; when it reaches the
 terminal stage — `implemented` — it moves **once** into `_done/`. That single move is the only
@@ -88,6 +97,6 @@ Every artifact opens with a status blockquote:
 
 | Feature | Stage | Notes |
 |---|---|---|
-| [box-score-foundation](box-score-foundation/) | intake | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Verifies the `leaguegamelog` bulk-endpoint belief; derives SCD2 player-team affiliation from observed box scores. |
+| [box-score-foundation](box-score-foundation/) | implemented | Phase 1. Extraction → landing → bronze → silver dimensional core, local end to end. **72,593 player-games over 3,478 games**, three pilot seasons, 2 bronze + 6 silver models, 12 singular tests, ADRs 0008 and 0009. Derives SCD2 player-team affiliation from observed box scores in its own stint model. Gold stays empty by design. |
 | [data-engineer-agent](data-engineer-agent/) | implemented | **Tooling, not pipeline** — the feature *is* a subagent that owns implementation work, with its own definition and an editable memory file. Would be the repo's first write-capable subagent. |
 | [agent-dispatch](agent-dispatch/) | intake | **The feature IS a pipeline stage** — modifies `/implement-plan` (stage 4) so it routes a plan's target paths to a builder instead of always building in-thread. The sequel to `data-engineer-agent`; makes the agent the default builder and realizes the context savings that request only bought the capability for. |

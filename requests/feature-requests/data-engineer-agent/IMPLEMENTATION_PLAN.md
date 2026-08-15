@@ -1089,8 +1089,8 @@ The stage-3 panel ran twice. The first attempt lost the structured merge and the
 to API failures; it was **not used**. The run was resumed with the three planner proposals replayed from
 cache, and the second attempt completed with **3/3 planners, 2/2 adversaries, 1/1 meta-audit and no
 degraded lenses** — 46 findings, 1 blocker, 18 majors. The full trail is in
-[`reviews/plan-adversarial.md`](reviews/plan-adversarial.md) and
-[`reviews/plan-proposals.md`](reviews/plan-proposals.md).
+`reviews/plan-adversarial.md` and `reviews/plan-proposals.md` — gitignored and machine-local,
+so referenced as inline code rather than as links.
 
 **78 cited references checked by the code-grounded adversary; 10 re-verified independently by the main
 thread; 14 corrections applied.** The corrections that changed the plan:
@@ -1120,9 +1120,9 @@ thread; 14 corrections applied.** The corrections that changed the plan:
 
 - [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) — the decided contract. Do not re-open it.
 - [`FEATURE_REQUEST.md`](FEATURE_REQUEST.md) — context and the four observable signals.
-- [`reviews/plan-adversarial.md`](reviews/plan-adversarial.md) — 46 findings, three reviewer summaries,
-  the convergence map, the gates as emitted, and the run history.
-- [`reviews/plan-proposals.md`](reviews/plan-proposals.md) — the three planners' raw proposals.
+- `reviews/plan-adversarial.md` — 46 findings, three reviewer summaries, the convergence map, the
+  gates as emitted, and the run history. Gitignored, machine-local.
+- `reviews/plan-proposals.md` — the three planners' raw proposals. Gitignored, machine-local.
 - [`CLAUDE.md`](../../../CLAUDE.md) — the map, the conventions, and the rulebook that moves.
 - [`../README.md`](../README.md) — the intake contract, the layout, and the status grammar.
 - [`../../../docs/decisions/README.md`](../../../docs/decisions/README.md) — required ADR sections, the

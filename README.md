@@ -8,10 +8,11 @@ franchise. The job is to build the systems that let analysts keep the team compe
 have the data access a team would — no optical tracking, no wearables, no medical — but the
 backend can be modeled faithfully, and the public data is richer than most people assume.
 
-> **Status: Phase 0 — scaffolding.** The repo, process, and CI harness are in place. No
-> pipeline code yet. The first data lands via
-> [`requests/feature-requests/`](requests/feature-requests/), which is the only route by which
-> any dataset enters this project.
+> **Status: Phase 1 — the box-score foundation is landed, local end to end.** Extraction, an
+> immutable landing zone, two bronze models and six silver models run from `nba_api` to a tested
+> dimensional core: **72,593 player-games and 3,478 games** across 2003-04, 2019-20 and 2024-25.
+> Gold is deliberately empty. Every dataset still enters through
+> [`requests/feature-requests/`](requests/feature-requests/), which remains the only route.
 
 ---
 
@@ -109,25 +110,43 @@ git clone https://github.com/jordan-koch/nba-data-platform.git
 cd nba-data-platform
 uv sync                      # creates .venv and installs dev + transform groups
 cp .env.example .env         # defaults to NBA_ENV=local — no cloud, no cost
+uv run dbt deps --project-dir transform --profiles-dir transform
 ```
 
-Verify:
+Verify, offline, against the committed fixtures — no network, no `var/`:
 
 ```bash
-uv run pytest
+uv run pytest -m "not network"
 uv run ruff check
-cd transform && uv run dbt build --target local
+uv run dbt build --project-dir transform --profiles-dir transform --target ci
 ```
 
+**Run every command from the repo root.** `dbt --project-dir transform` does *not* change
+directory into `transform/` — it resolves relative paths against the process working directory, so
+running from inside `transform/` points the source glob and the warehouse at the wrong places and
+fails naming a path that looks plausible.
+
+To build against real data instead of fixtures, extract it first:
+
+```bash
+mkdir -p var/warehouse                     # DuckDB will not create it for you
+uv run python -m nba_platform.backfill --dry-run   # prints the cost before spending it
+uv run python -m nba_platform.backfill             # ~6 calls, ~6 seconds, polite pacing
+uv run dbt build --project-dir transform --profiles-dir transform --target local
+```
+
+The backfill is write-once: re-running it re-lands nothing and issues zero requests. `-m network`
+runs the live contract test against `stats.nba.com` and is excluded from CI.
+
 `NBA_ENV=local` runs the whole stack on disk — landing zone in `var/`, warehouse in DuckDB. No
-AWS or Snowflake credentials needed to develop or to run CI.
+AWS or Snowflake credentials are needed to develop or to run CI.
 
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | **0** | Repo, process, CI harness | ✅ |
-| **1** | Box-score foundation — dimensional core, local end to end | Next |
+| **1** | Box-score foundation — dimensional core, local end to end | ✅ |
 | **2** | S3 + Iceberg; Snowflake | |
 | **3** | Airflow, with 2025-26 replayed as synthetic nightly increments | |
 | **4** | Gold marts published; React + DuckDB-WASM front end | |

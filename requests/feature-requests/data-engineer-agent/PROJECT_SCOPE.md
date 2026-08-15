@@ -511,7 +511,9 @@ Six blockers were adopted as corrections rather than put to the user individuall
 ## Panel Trail
 
 Raw proposals from the three divergent scopers: `reviews/scope-proposals.md`. Adversary findings,
-the convergence map, and the merged scope as emitted: `reviews/scope-adversarial.md`. Panel health:
+the convergence map, and the merged scope as emitted: `reviews/scope-adversarial.md`. Both are
+**gitignored and machine-local** — everything this scope depends on is carried verbatim above.
+Panel health:
 3/3 scopers, 2/2 adversaries, no degraded lenses; 52 findings (6 blockers, 19 majors). Panel content
 in those files is fenced because it contains Markdown link syntax that does not resolve from
 `reviews/`.

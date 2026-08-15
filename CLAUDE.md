@@ -8,8 +8,10 @@ systems that let analysts answer questions, not to answer them ad hoc.
 [`docs/decisions/0001-deliberate-over-engineering.md`](docs/decisions/0001-deliberate-over-engineering.md)
 before concluding something here is overkill — it probably is, and the ADR says why.
 
-> **Phase 0.** Repo, process, and CI harness exist. **No pipeline code yet.** The first data
-> arrives via a feature request.
+> **Phase 1.** The box-score foundation is landed and runs locally end to end: extraction →
+> immutable landing zone → 2 bronze → 6 silver, **72,593 player-games over three pilot seasons**.
+> `transform/models/gold/` is deliberately still empty. Every further dataset arrives via a
+> feature request.
 
 ## Project Map
 
@@ -38,11 +40,12 @@ yet — see the roadmap in [`README.md`](README.md).
 
 ## Important Locations
 
-- **[docs/decisions/](docs/decisions/)** — start here. Six ADRs cover the scope range, the
-  storage substrate, the engine choice, the serving layer, and why the repo is public.
+- **[docs/decisions/](docs/decisions/)** — start here. Seven ADRs cover the scope range, the
+  storage substrate, the engine choice, the serving layer, why the repo is public, and the
+  write-capable implementation subagent.
 - **[docs/data-sources.md](docs/data-sources.md)** — what's available, from when, and what
-  breaks. **Everything in it is currently `unconfirmed`** — no endpoint has been called from
-  this repo. Confirming it is the first task of the first feature request.
+  breaks. **One endpoint is `verified`** — `leaguegamelog`, by `box-score-foundation`'s Gate 0
+  probe. **The rest is still `unconfirmed`**: check the label before building on a claim.
 - **[requests/README.md](requests/README.md)** — the intake contract and the three-track split.
   Each track's README is authoritative for its own layout and status grammar.
 - **[transform/models/](transform/models/)** — each medallion layer carries a README stating
@@ -76,6 +79,11 @@ yet — see the roadmap in [`README.md`](README.md).
   state. Bubble a destructive-git *need* back up. **Editing a tracked file is not a git
   operation**, so a write-capable builder with a declared write allowlist sits inside this
   rule rather than being an exception to it — see [`.claude/agents/`](.claude/agents/README.md).
+- **The agent memory file has a two-tier budget.** `.claude/agents/data-engineer-memory.md` carries
+  a **~120-line curation target** enforced by judgment at `/update-docs` before merge, and a
+  **250-line runaway ceiling** enforced mechanically in CI. Agents append freely while they work
+  and **never prune** — pruning mid-build means predicting which entries later phases will need,
+  and guessing wrong drops the one that would have saved them.
 - **Label your epistemics.** *Measured*, *verified*, *inferred*, *assumed*, *unconfirmed* mean
   different things. An unconfirmed claim about an endpoint's shape is a task, not a fact. This
   matters more than usual here because most of this repo is written by agents against docs
@@ -115,6 +123,16 @@ the relocation exists to remove.
   [`ops/branch-protection.json`](ops/branch-protection.json) match job **display names**. Rename one
   in `ci.yml` without updating that file and PRs wait forever for a check that never reports, with
   no error saying why. Change both in the same commit.
+- **`dbt --project-dir transform` does NOT change directory into it.** Relative paths — the bronze
+  source glob, `profiles.yml`'s DuckDB `path:` — resolve against the *process working directory*,
+  so every one of them is written relative to the **repo root** and every sanctioned invocation
+  launches from there. A `../` prefix resolves outside the repo and fails naming a path that looks
+  entirely plausible. This cost two latent defects on the first slice.
+- **A config that has never run is not a config that works.** `.sqlfluff` shipped an
+  `exclude_rules` written as a TOML list inside an INI file; `configparser` rejected it and *no*
+  sqlfluff command could run at all. It stayed invisible because the CI step is guarded to skip
+  while no `.sql` exists. When a check is conditionally skipped, its configuration is untested —
+  run it by hand before the condition flips.
 
 ## How to Help
 

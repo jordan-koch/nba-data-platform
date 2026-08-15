@@ -1,0 +1,79 @@
+version: 2
+
+# The landing zone, read in place.
+#
+# Nothing is copied into the warehouse first: DuckDB reads the immutable `payload.json`
+# files exactly where the extraction layer wrote them. That is what keeps the bronze
+# contract executable -- if bronze and the landed JSON disagree, bronze is wrong, and the
+# raw is one glob away.
+#
+# ONE named indirection, resolved per target. `meta.external_location` is dbt-duckdb's
+# hook: the adapter reads it off the source config, interpolates it with `str.format_map`
+# under the default `newstyle` formatter, and renders it in place of the relation name --
+# unquoted, because it contains a `(`. Three things this file has to keep true:
+#
+#   * NO literal brace may survive rendering. `format_map` raises a bare KeyError on one,
+#     at parse time, with a message that names neither this file nor the offending glob.
+#   * `payload.json` is globbed by name. Every capture directory also holds a
+#     `manifest.json`; a `capture=*/*.json` glob would union manifests into the model.
+#   * The per-target conditional lives HERE, not in `dbt_project.yml`'s `vars:`. `vars:` is
+#     a flat mapping with no target scoping, and whether `target.name` resolves while the
+#     project file is parsed is a dbt implementation detail rather than a contract. Source
+#     YAML is rendered through the schema-yaml context, where `target` and `env_var` are.
+#
+# THE ROOTS ARE RELATIVE TO THE PROCESS WORKING DIRECTORY, NOT TO THIS PROJECT DIRECTORY.
+# Measured, and the opposite of what is easy to assume: `dbt --project-dir transform` does
+# NOT chdir into `transform/`, so DuckDB resolves `tests/fixtures` against wherever dbt was
+# launched. Every invocation this repo sanctions launches from the REPO ROOT -- `ci.yml`'s
+# `dbt build --project-dir transform ...`, which is the required check named in
+# `ops/branch-protection.json`, and the acceptance commands that mirror it byte for byte.
+# A `../` prefix here reddens that required check with `IO Error: No files found`. The
+# default for the non-CI branch is repo-root-relative for the same reason, which is also
+# how `src/nba_platform/config.py` anchors a relative `NBA_LANDING_ROOT`; point that
+# variable at an absolute path and the question stops applying.
+#
+# The `_runs/` audit directory sits beside the partitions and is deliberately unreachable
+# from here: the glob starts at `season=`, so a run manifest can never enter a model.
+
+sources:
+  - name: nba_stats_landing
+    description: >-
+      The immutable landing zone: raw `stats.nba.com` responses as written, one JSON
+      document per capture, partitioned Hive-style by season, grain, season type and
+      capture stamp. Written once and never mutated, so history replays without
+      re-hitting a rate-limited API.
+    schema: main
+    loader: nba_platform.landing
+    tables:
+      - name: league_game_log_player
+        description: >-
+          Every capture of the `leaguegamelog` endpoint at PLAYER grain
+          (`PlayerOrTeam=P`), one landed row per capture. The endpoint answers with a
+          column-store envelope -- `resultSets[0].headers` plus `resultSets[0].rowSet` --
+          so this relation is one row per *capture*, not one row per player-game; the
+          bronze model does the decode. `hive_partitioning = true` projects the path's
+          `season`, `grain`, `season_type` and `capture` segments as VARCHAR columns,
+          which is how bronze recovers capture provenance without joining the manifest
+          sidecar (a join the bronze contract forbids).
+        meta:
+          external_location: >-
+            read_json_auto('{{ 'tests/fixtures' if target.name == 'ci' else env_var('NBA_LANDING_ROOT', 'var/landing') }}/nba_stats/league_game_log/season=*/grain=player/season_type=*/capture=*/payload.json', hive_partitioning = true)
+
+      - name: league_game_log_team
+        description: >-
+          Every capture of the `leaguegamelog` endpoint at TEAM grain (`PlayerOrTeam=T`),
+          one landed row per capture. Same column-store envelope as the player grain and
+          the same one-row-per-capture shape; the header list is 29 columns rather than 32
+          (no `PLAYER_ID`, `PLAYER_NAME` or `FANTASY_PTS`), which is why it is a separate
+          source table and a separate model rather than a filter over one relation.
+
+
+          THIS GRAIN IS WHERE TWO CAPTURES OF ONE PARTITION FIRST MEET. The committed
+          fixtures hold a second capture of `season=2003-04` -- a restatement, landed
+          later, of one game -- so the glob below unions eight rows for that partition and
+          the model's latest-capture-wins dedup is what reduces them. That is deliberate:
+          box scores get restated after the fact, and a rule with no fixture behind it is
+          a rule nobody has run.
+        meta:
+          external_location: >-
+            read_json_auto('{{ 'tests/fixtures' if target.name == 'ci' else env_var('NBA_LANDING_ROOT', 'var/landing') }}/nba_stats/league_game_log/season=*/grain=team/season_type=*/capture=*/payload.json', hive_partitioning = true)

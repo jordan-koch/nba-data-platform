@@ -1,4 +1,4 @@
-> **Status:** intake · created 2026-08-12 · open · next: scope
+> **Status:** implemented · created 2026-08-12 · decided · next: commit
 
 # Feature Request — Box-Score Foundation
 

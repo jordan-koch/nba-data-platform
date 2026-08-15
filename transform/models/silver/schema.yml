@@ -1,0 +1,583 @@
+version: 2
+
+# The conformed dimensional core, one model at a time. Every model here states its grain in
+# PROSE below and PROVES it with a uniqueness test whose columns agree with that prose -- a grain
+# claimed but not tested is a grain that will quietly break, and the two disagreeing is worse
+# than neither existing. See `transform/models/silver/README.md`.
+#
+# Generic-test arguments nest under `arguments:` (dbt 1.10 deprecated passing them at the top
+# level) and the key is `data_tests:` (which replaced `tests:` in dbt 1.8). `dbt_project.yml`
+# sets `+severity: error`, so a deprecation warning is a RED build, not a note.
+#
+# `+persist_docs` is on for relations and columns, so every description here is written onto the
+# DuckDB relation itself. That is deliberate: the caveats below are the kind that get lost when
+# they live only in a plan document.
+
+models:
+  - name: dim_game
+    description: >-
+      GRAIN: one row per `game_id`. The team-grain payload carries two rows per game -- one per
+      side -- and they collapse to one row here.
+
+
+      HOME AND AWAY ARE DERIVED, NOT GIVEN. `MATCHUP` is the only signal the endpoint carries:
+      `DAL vs. LAL` is the home side, `DAL @ LAL` the away side. Deriving that is business logic,
+      so it happens here and never in bronze, and it is proved by
+      `transform/tests/assert_every_game_has_exactly_two_teams.sql` rather than assumed.
+
+
+      READ `home_team_id` AS A SCHEDULING DESIGNATION, NOT AS A VENUE FACT. It says which team
+      the league listed as host, which is not the same claim as "played in their own arena".
+      Every one of the 1,059 games in the 2019-20 season was physically played at a single
+      neutral site in Orlando and every one of them still carries a designated home team. A model
+      that reads home/away as a venue -- home-court advantage, travel distance, altitude, crowd
+      -- is wrong for all 1,059, and will be wrong again for any future neutral-site or
+      international game the league designates a host for.
+
+
+      NEUTRAL-SITE GAMES ARE THE CASE WHERE THE SOURCE DESIGNATES NO HOST AT ALL. Five 2024-25
+      games carry ` @ ` on both team rows; for those `is_neutral_site` is true and both team ids
+      are NULL. No home team is invented to fill them in.
+
+
+      SEASON TYPE IS CARRIED FROM DAY ONE even though only the regular season has been
+      extracted, so playoffs arrive later as new ROWS rather than as a schema migration.
+    columns:
+      - name: game_id
+        description: >-
+          Zero-padded 10-character game identifier, VARCHAR, carried through from bronze
+          unchanged. This is the dimension's key and the grain the prose above declares.
+        data_tests:
+          - unique
+          - not_null
+      - name: game_date
+        description: >-
+          Date the game was played. `dim_date` is deliberately out of this slice, so this is the
+          date column every downstream calendar question resolves through.
+        data_tests:
+          - not_null
+      - name: season_id
+        description: >-
+          The payload's own season identifier, e.g. `22019` -- a leading digit encoding season
+          type followed by the four-digit season start year. Carried as VARCHAR because it is
+          zero-padded.
+        data_tests:
+          - not_null
+      - name: season_type
+        description: >-
+          Season type decoded from `season_id`'s leading digit. `2` -> `Regular Season` is
+          VERIFIED for this corpus (every landed row was pulled with `SeasonType=Regular Season`
+          and every `season_id` in it starts with `2`); `4` -> `Playoffs` is INFERRED from
+          stats.nba.com convention and unverified here, since no playoff game has been landed.
+          Any other leading digit resolves to NULL on purpose, so the `not_null` test below turns
+          a newly landed season type into a red build asking for a decision rather than a guess.
+        data_tests:
+          - not_null
+      - name: is_neutral_site
+        description: >-
+          True when the source designated NO home team -- both of the game's team rows read
+          ` @ `. Measured across the pilot: five 2024-25 games, none in 2003-04 or 2019-20. Note
+          the asymmetry with the caveat on this model: false does NOT mean the game was played in
+          the designated home team's arena, it means a host was designated.
+        data_tests:
+          - not_null
+      - name: home_team_id
+        description: >-
+          The team designated home, from the ` vs. ` side of `MATCHUP`. NULL for neutral-site
+          games, where the source designates neither side, and NULL for any game whose two rows
+          do not resolve to exactly one home and one away -- an unresolvable shape is left empty
+          rather than guessed, and the singular test turns it red.
+      - name: away_team_id
+        description: >-
+          The team designated away, from the ` @ ` side of `MATCHUP`. NULL under exactly the same
+          conditions as `home_team_id`, including for neutral-site games, where BOTH rows read
+          ` @ ` and choosing one of them would be arbitrary.
+
+  - name: fact_player_game
+    description: >-
+      GRAIN: one row per player per game, keyed `(game_id, player_id)`. A player traded
+      mid-season appears under the team he played THAT GAME for -- team affiliation resolves
+      as-of the game date, not as-of today.
+
+
+      `team_id` IS THE OBSERVED VALUE ON THE BOX-SCORE ROW and comes from nowhere else: not from
+      `dim_team`, and above all not from the SCD2 stint model, which is DERIVED FROM this fact.
+      Joining back to it would make fact correctness depend on the interpolation the fact is the
+      evidence for.
+
+
+      MATERIALIZATION IS A DECLARED DIVERGENCE, NOT DRIFT. Facts in this layer are MERGE-on-key
+      by rule -- box scores get restated days later, so nightly runs re-pull a trailing window
+      rather than only yesterday (`CLAUDE.md`; `transform/models/silver/README.md` lines 47-48).
+      This model is full-refresh because all three pilot seasons are long finalized and a full
+      rebuild is seconds. THE FIRST IN-PROGRESS SEASON, OR THE FIRST NIGHTLY RUN, REQUIRES MERGE
+      FIRST. `unique_key` is already declared in the model's config so that switch is
+      configuration rather than a rewrite.
+
+
+      COVERAGE is players who APPEARED in a game's box score. A player who dressed and did not
+      play has no row here, and the absence of a row is not a zero.
+
+
+      ERA COVERAGE: no tracking-derived column appears on this endpoint at any grain, so the
+      2013-14 tracking boundary does not bite this model. The irregular seasons (2011-12,
+      2019-20, 2020-21) are a row-count property here, not a schema one -- nothing in this model
+      assumes 82 games or an October-April calendar.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [game_id, player_id]
+    columns:
+      - name: game_id
+        description: The game this line belongs to. Joins to `dim_game.game_id`.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_game')
+                field: game_id
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`. Identity is stable across a career; team AFFILIATION is not, which
+          is why `team_id` below is read off this same row.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_player')
+                field: player_id
+      - name: team_id
+        description: >-
+          The team the player appeared for IN THIS GAME, copied from the observed box-score row.
+          Resolving affiliation as-of today rather than as-of the game date is this project's
+          likeliest silent join bug, and reading it from the row is what forecloses it here.
+
+
+          THE `relationships` TEST BELOW PROVES THE KEY RESOLVES, NOT THAT THE NAME IS RIGHT.
+          `dim_team` holds one row per franchise under its LATEST observed name, so this join
+          always finds a row and that row may render a 2003-04 game under a name from 2025. Zero
+          orphans is measured; the naming caveat is `dim_team`'s to carry.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
+      - name: minutes_played
+        description: >-
+          Minutes played, an INTEGER count on this endpoint rather than `MM:SS`. Renamed from
+          bronze's `min` -- semantic renaming is silver's job, and a column named `min` cannot be
+          selected bare in DuckDB. Rounded to whole minutes at the source, so a team's twelve
+          player values do not re-sum to its exact team total.
+      - name: fgm
+        description: Field goals made.
+      - name: fga
+        description: Field goals attempted. Never less than `fgm`, asserted as a singular test.
+      - name: fg_pct
+        description: Field-goal percentage as the endpoint computed it. NULL on zero attempts.
+      - name: fg3m
+        description: Three-point field goals made.
+      - name: fg3a
+        description: Three-point field goals attempted.
+      - name: fg3_pct
+        description: Three-point percentage. NULL on zero attempts -- a real null, not zero.
+      - name: ftm
+        description: Free throws made.
+      - name: fta
+        description: Free throws attempted.
+      - name: ft_pct
+        description: Free-throw percentage. NULL on zero attempts.
+      - name: oreb
+        description: Offensive rebounds.
+      - name: dreb
+        description: Defensive rebounds.
+      - name: reb
+        description: Total rebounds.
+      - name: ast
+        description: Assists.
+      - name: stl
+        description: Steals.
+      - name: blk
+        description: Blocks.
+      - name: tov
+        description: Turnovers.
+      - name: pf
+        description: Personal fouls.
+      - name: pts
+        description: Points scored.
+      - name: plus_minus
+        description: >-
+          Team point differential while this player was on the floor. Present with zero nulls
+          back to 2003-04 on this endpoint, which is why bronze tests it `not_null`.
+
+  - name: dim_team
+    description: >-
+      GRAIN: one row per `team_id` -- one row per FRANCHISE, for the franchise's whole life.
+      Measured over the pilot: 30 rows from 34 distinct `(team_id, team_name)` pairs.
+
+
+      THE NAME IS AS-OF THE LATEST OBSERVATION, AND THAT IS A HAZARD WORTH READING BEFORE YOU
+      JOIN TO IT. Four franchises are observed under two names across the pilot span -- New
+      Orleans Hornets/Pelicans, Los Angeles/LA Clippers, New Jersey Nets/Brooklyn Nets, Seattle
+      SuperSonics/Oklahoma City Thunder. With this grain there is exactly one name per franchise
+      and it is the most recent one, so A FACT-TO-`dim_team` JOIN RENDERS A 2003-04 SEATTLE GAME
+      UNDER THE OKLAHOMA CITY THUNDER. That is the same as-of-today-versus-as-of-game-date bug
+      `docs/data-sources.md` names for players, in the dimension nobody flags it for: the join
+      key is right, the label is anachronistic, and nothing goes red.
+
+
+      THE HISTORICAL NAME IS NOT LOST. Every game's row in
+      `bronze__nba_stats__league_game_log_team` carries `team_name` and `team_abbreviation` AS OF
+      THAT GAME. A report that must show the contemporaneous name reads it from bronze, or waits
+      for a slowly-changing team dimension -- it does not get it from here.
+
+
+      `team_id` IS THE STABLE IDENTIFIER; the name and abbreviation are attributes of it that
+      change on a relocation or a rebrand. A grain keyed on abbreviation would look correct and be
+      wrong: 1610612746 changed only its display name under one unchanged `LAC`, so an
+      abbreviation key silently collapses its two names and reports a clean count that hides the
+      collapse.
+    columns:
+      - name: team_id
+        description: >-
+          Stable franchise identifier. This is the dimension's key and the grain the prose above
+          declares -- the uniqueness test is on this column ALONE, which is what the prose says.
+        data_tests:
+          - unique
+          - not_null
+      - name: team_name
+        description: >-
+          Full franchise name AS OF THE MOST RECENT GAME OBSERVED, e.g. `Oklahoma City Thunder`
+          for 1610612760 including on its 2003-04 rows. Read with the as-of caveat above.
+        data_tests:
+          - not_null
+      - name: team_abbreviation
+        description: >-
+          Three-letter code from THE SAME latest observed row as `team_name`, never resolved
+          independently -- picking each attribute's latest value separately could assemble a
+          (name, abbreviation) pair that never existed in any game.
+        data_tests:
+          - not_null
+
+  - name: dim_player
+    description: >-
+      GRAIN: one row per `player_id` -- the endpoint's `PERSON_ID`, one row per PLAYER for his
+      whole career. Measured over the pilot: 1,306 rows from 1,309 distinct
+      `(player_id, player_name)` pairs.
+
+
+      THIS DIMENSION CARRIES NO TEAM, DELIBERATELY. `PERSON_ID` is stable; AFFILIATION is a
+      function of the game date -- trades, ten-day contracts, two-way players, February buyouts.
+      A `team_id` column here would be an as-of-today answer to a question that only has
+      as-of-game-date answers, and it would be the first thing a downstream join reached for.
+      Affiliation lives on `fact_player_game.team_id`, read off the observed box-score row.
+
+
+      THE NAME IS AS-OF THE LATEST OBSERVATION, same rule and same hazard as `dim_team`, and it
+      is easier to miss because it is three players in thirteen hundred: 202685 and 1628427 gain
+      diacritics over time, and 1626171 goes the other way -- the source shows `Bobby Portis Jr.`
+      in 2019-20 and `Bobby Portis` in 2024-25, so the SUFFIX WAS DROPPED. There is no lexical
+      rule that picks the right spelling; there is only a date. "The name as observed" has no
+      single answer once a player has two spellings, so a 2003-04 row can render under a later
+      one, and the spelling as observed on any given game stays recoverable from
+      `bronze__nba_stats__league_game_log_player`.
+
+
+      COVERAGE IS PLAYERS WHO APPEARED IN A BOX SCORE, AND THE MODEL'S NAME OVERCLAIMS THAT. A row
+      exists here only because the player was observed playing in a landed game. A player who was
+      under contract all season and never got off the bench is ABSENT ENTIRELY -- there is no row
+      with null measures, there is no row -- and so is anyone whose only appearances fall in a
+      season this slice has not landed. Roster supplementation from `commonteamroster` is a
+      declared non-goal, so the limit is documented rather than filled: read this dimension as
+      "players this corpus has seen play", never as "NBA players".
+
+
+      IDENTITY ONLY. No height, weight, position, draft year or college -- those are not on a box
+      score, they live on `commonplayerinfo`, and they are out of scope for this slice.
+    columns:
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`. This is the dimension's key and the grain the prose above declares.
+        data_tests:
+          - unique
+          - not_null
+      - name: player_name
+        description: >-
+          Display name AS OF THE MOST RECENT GAME OBSERVED. Never a join key -- three players in
+          the pilot corpus alone are spelled two ways, so a name join loses rows in a way an id
+          join cannot.
+        data_tests:
+          - not_null
+      - name: first_observed_game_date
+        description: >-
+          Earliest game date on which this player APPEARS IN A LANDED BOX SCORE -- the minimum
+          `dim_game.game_date` over his `fact_player_game` rows. THIS IS NOT A DEBUT DATE. It is
+          bounded by what has been extracted, so for a player whose career began before 2003-04 it
+          is simply the first pilot game he played in, and it moves earlier the moment another
+          season is landed.
+        data_tests:
+          - not_null
+      - name: last_observed_game_date
+        description: >-
+          Latest game date on which this player appears in a landed box score. NOT A RETIREMENT
+          DATE, and never subtract it from `first_observed_game_date` to get a career length: the
+          pilot lands 2003-04, 2019-20 and 2024-25 only, so player 2544 spans 2003-10-29 to
+          2025-04-11 with two decades of unlanded seasons inside the interval. Always greater than
+          or equal to `first_observed_game_date`.
+        data_tests:
+          - not_null
+
+  - name: fact_team_game
+    description: >-
+      GRAIN: one row per team per game, keyed `(game_id, team_id)`. Measured: 6,956 rows over
+      3,478 games -- exactly two per game, which
+      `transform/tests/assert_every_game_has_exactly_two_teams.sql` asserts independently.
+
+
+      THIS IS WHAT `fact_player_game` RECONCILES TO. For every team-game the players' lines sum
+      to this one, exactly, on 6,956 of 6,956 for points and thirteen other measures --
+      `transform/tests/assert_player_points_reconcile_to_team.sql`. That reconciliation is the
+      cheapest fan-out detector in this repo and the reason both facts exist in one phase.
+
+
+      `tov` IS THE ONE MEASURE THAT DOES NOT RECONCILE BY EQUALITY, AND THAT IS BASKETBALL, NOT A
+      DEFECT. Turnovers can be charged to the TEAM and to no player -- shot-clock violation,
+      five-second inbound. Measured: team `tov` equals the player sum in 3,541 team-games, is
+      HIGHER in 3,415 (mean excess 0.70) and is LOWER in exactly ZERO. So the assertion that holds
+      is an inequality, and it lives in
+      `transform/tests/assert_team_turnovers_never_below_player_sum.sql`.
+
+
+      `minutes_played` USES `fact_player_game`'s NAME, NOT BRONZE'S `min`. Two facts decoded from
+      one endpoint disagreeing about a column name is the kind of drift that surfaces as a silently
+      failing union. Unlike the player grain, team minutes are EXACT: 240 plus 25 per overtime
+      period on 6,956 of 6,956.
+
+
+      MATERIALIZATION IS THE SAME DECLARED DIVERGENCE `fact_player_game` CARRIES. Facts in this
+      layer are MERGE-on-key by rule because box scores get restated days later; this model is
+      full-refresh because all three pilot seasons are long finalized. `unique_key` is declared in
+      the model config so the first in-progress season is a config change, not a rewrite.
+
+
+      ERA COVERAGE: no tracking-derived column appears on this endpoint at any grain, so the
+      2013-14 tracking boundary does not bite this model. The irregular seasons (2011-12, 2019-20,
+      2020-21) are a row-count property here, not a schema one.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [game_id, team_id]
+    columns:
+      - name: game_id
+        description: The game this line belongs to. Joins to `dim_game.game_id`.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_game')
+                field: game_id
+      - name: team_id
+        description: >-
+          The team this line belongs to. Joins to `dim_team.team_id` -- which resolves the KEY,
+          not the era-correct NAME; see `dim_team`'s caveat.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
+      - name: minutes_played
+        description: >-
+          Total team minutes, an INTEGER on this endpoint rather than `MM:SS`. Renamed from
+          bronze's `min` to match `fact_player_game`. Exact at this grain -- 240 plus 25 per
+          overtime period -- unlike the player grain, which the source rounds.
+      - name: fgm
+        description: Field goals made. Reconciles exactly to the player sum.
+      - name: fga
+        description: >-
+          Field goals attempted. Never less than `fgm`, asserted as a singular test. Reconciles
+          exactly to the player sum.
+      - name: fg_pct
+        description: >-
+          Field-goal percentage as the endpoint computed it. A RATIO, not a sum -- deliberately
+          absent from the cross-grain reconciliation, which is additive.
+      - name: fg3m
+        description: Three-point field goals made. Reconciles exactly to the player sum.
+      - name: fg3a
+        description: Three-point field goals attempted. Reconciles exactly to the player sum.
+      - name: fg3_pct
+        description: Three-point percentage. A ratio, not a sum.
+      - name: ftm
+        description: Free throws made. Reconciles exactly to the player sum.
+      - name: fta
+        description: Free throws attempted. Reconciles exactly to the player sum.
+      - name: ft_pct
+        description: Free-throw percentage. A ratio, not a sum.
+      - name: oreb
+        description: Offensive rebounds. Reconciles exactly to the player sum.
+      - name: dreb
+        description: Defensive rebounds. Reconciles exactly to the player sum.
+      - name: reb
+        description: Total rebounds. Reconciles exactly to the player sum.
+      - name: ast
+        description: Assists. Reconciles exactly to the player sum.
+      - name: stl
+        description: Steals. Reconciles exactly to the player sum.
+      - name: blk
+        description: Blocks. Reconciles exactly to the player sum.
+      - name: tov
+        description: >-
+          Turnovers, INCLUDING team turnovers charged to no player. This is the one summable
+          measure that does NOT equal the player sum -- it is greater than or equal to it, never
+          less, over 6,956 measured team-games. Do not add it to the equality reconciliation.
+      - name: pf
+        description: Personal fouls. Reconciles exactly to the player sum.
+      - name: pts
+        description: >-
+          Points scored. The canonical cross-grain reconciliation: 6,956 of 6,956 team-games have
+          the players' points summing exactly to this column.
+      - name: plus_minus
+        description: >-
+          Point differential for the game. At this grain it is the final margin, so the two sides
+          of a game negate each other -- an invariant no test asserts yet; see the handoff.
+
+  - name: dim_player_team_stint
+    description: >-
+      GRAIN: one row per player per TEAM-STINT, keyed `(player_id, valid_from)`. A stint is an
+      unbroken run of observed appearances for one team, bounded within a season. Measured over the
+      pilot: 1,764 stints, of which 209 player-seasons carry more than one (68 in 2003-04, 60 in
+      2019-20, 81 in 2024-25).
+
+
+      DERIVED FROM OBSERVATIONS, BECAUSE NO ENDPOINT RETURNS THIS. `leaguegamelog` reports that a
+      player appeared for a team in a game; player-team HISTORY as a time series is nowhere in the
+      source. This model reconstructs it from `fact_player_game`'s observed `team_id` joined to
+      `dim_game` for the date. The dependency runs one way only -- the fact must never join back to
+      this model, or fact correctness would rest on the interpolation the fact is the evidence for.
+
+
+      A DATE INSIDE A TRADE GAP DELIBERATELY RESOLVES TO THE OLD TEAM. `valid_to` is the day BEFORE
+      the next stint's first game, not the last game played, so the days between a player's last
+      game for one team and his first for the next are covered by the OLD stint. Max Christie's
+      Lakers stint runs 2024-10-22 to 2025-02-03 although his last Lakers game was 2025-02-01, and
+      his Mavericks stint opens 2025-02-04. The rejected alternative -- closing at the last observed
+      game -- makes an as-of join for 2025-02-02 return ZERO ROWS, which is a worse answer than a
+      slightly stale one. `last_game_prior_team` and `first_game_new_team` are carried so the
+      interpolated span stays visible and falsifiable instead of being fabricated silently. Only a
+      season's FINAL stint closes at its own last observed game.
+
+
+      THE CONTAINMENT TEST IS VACUOUS BETWEEN GAME DATES, AND THAT IS WHY THERE ARE TWO TESTS.
+      `transform/tests/assert_player_team_matches_open_stint.sql` checks every observed row against
+      the stints, so it proves the run-collapse lost nothing, reordered nothing and produced no
+      overlap -- but it is derived from the same observations it checks, so it says NOTHING about
+      any date on which no game was played. That is exactly the interpolated span above.
+      `transform/tests/assert_known_trade_resolves_both_sides.sql` is the non-vacuous companion: it
+      pins one real trade to `transform/seeds/known_trade_expectations.csv`, including 2025-02-02
+      and 2025-02-03, where no observation exists. Neither test is sufficient alone.
+
+
+      ANY AS-OF JOIN MUST JOIN ON `game_date between valid_from and valid_to` AND NEVER ON
+      `is_current = true`. `is_current` answers "where is he NOW", which is the wrong question for
+      every historical row: resolving affiliation as-of today instead of as-of the game date is this
+      project's single most likely source of silently wrong joins, and this column is the shortest
+      path to committing it.
+
+
+      STINTS ARE BOUNDED BY SEASON, WHICH IS A MODELLING DECISION AND NOT A SOURCE PROPERTY. A
+      player who stays on one team for three seasons gets three rows, not one. Without it the one
+      player observed in all three pilot seasons -- 2544, 2003-10-29 to 2025-04-11 -- collapses into
+      a single twenty-two-year stint. It also means ranges are non-contiguous by construction, which
+      is why the range test below allows gaps.
+    data_tests:
+      # The grain the prose declares, proved. `valid_from` rather than `season_id` or `team_id`:
+      # a player can hold two stints with the SAME team in one season (A -> B -> A, twice in this
+      # corpus), so any key including `team_id` instead of the start date would collide on them.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [player_id, valid_from]
+      # "Exactly one OPEN interval per player", expressed without a null or a 9999 sentinel in
+      # `valid_to` -- the range test below compares bounds directly, and a null upper bound is a
+      # meaningless comparison. This asserts at most one CURRENT stint per player instead.
+      - dbt_utils.unique_combination_of_columns:
+          name: dim_player_team_stint_has_one_current_stint_per_player
+          arguments:
+            combination_of_columns: [player_id]
+          config:
+            where: is_current
+      # ALL FOUR ARGUMENTS ARE EXPLICIT, AND TWO OF THE DEFAULTS WOULD BE WRONG HERE:
+      #   * `partition_by: player_id` -- ranges must be exclusive WITHIN a player, never across
+      #     players; the macro's default of no partition compares every player against every other
+      #     and fails on the first two players who overlap in time, which is all of them.
+      #   * `gaps: 'allowed'` -- stints are season-bounded and the pilot's three seasons are
+      #     non-adjacent, so real gaps exist by construction. `not_allowed` demands contiguity that
+      #     the corpus denies, and `required` forbids the back-to-back stints a trade produces. An
+      #     invalid value raises a compiler error rather than being ignored.
+      #   * `zero_length_range_allowed: true` -- MANDATORY, not defensive. Twenty season-final
+      #     stints span a single date under `--target local` (the ten-day-contract case) and 216 do
+      #     under `--target ci`, where the fixture leaves most players a single game. The macro's
+      #     default of `false` selects a strict `<` that fails on every one of them, which is
+      #     correct data reddening the required check.
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: valid_from
+            upper_bound_column: valid_to
+            partition_by: player_id
+            gaps: 'allowed'
+            zero_length_range_allowed: true
+    columns:
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`, joining to `dim_player.player_id`. Identity is stable; the
+          affiliation this model carries is not, which is what the date columns are for.
+        data_tests:
+          - not_null
+      - name: team_id
+        description: >-
+          The team observed on every box-score row inside this stint, joining to
+          `dim_team.team_id` -- which resolves the KEY, not the era-correct NAME; see `dim_team`'s
+          caveat. Read off the fact, never assigned from a roster snapshot.
+        data_tests:
+          - not_null
+      - name: season_id
+        description: >-
+          The season this stint is bounded by, carried from `dim_game`. Present because the
+          run-collapse partitions on it: a stint never spans a season boundary.
+        data_tests:
+          - not_null
+      - name: valid_from
+        description: >-
+          First game date observed with this team in this stint. Part of the key. Always an
+          observed date -- the interpolation only ever extends the END of a stint.
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: >-
+          Day BEFORE the next stint's `valid_from`, or -- for a season's final stint -- that
+          stint's last observed game date. NEVER NULL and never a sentinel. This is the column that
+          covers a trade gap with the OLD team, so it is frequently LATER than the last game
+          actually played with that team; compare it against `last_game_prior_team` to see how much
+          of the range is interpolated.
+        data_tests:
+          - not_null
+      - name: is_current
+        description: >-
+          True on the stint holding this player's GLOBALLY latest observation, across seasons.
+          A CONVENIENCE FOR "WHERE IS HE NOW", AND A TRAP FOR ANYTHING ELSE: never filter a
+          historical join on it. It also means what the corpus says, not what the league says -- a
+          player last observed in 2003-04 carries a current stint from 2003-04.
+        data_tests:
+          - not_null
+      - name: last_game_prior_team
+        description: >-
+          Last game date actually OBSERVED within this stint. Equals `valid_to` when nothing was
+          interpolated, and precedes it across a trade gap -- 2025-02-01 against a `valid_to` of
+          2025-02-03 for Max Christie's Lakers stint.
+        data_tests:
+          - not_null
+      - name: first_game_new_team
+        description: >-
+          First game date observed in the NEXT stint of the same player-season, and NULL for a
+          season's final stint -- the one nullable column here, and null means "no next stint in
+          this season" rather than missing. With `last_game_prior_team` it brackets the
+          interpolated span exactly.

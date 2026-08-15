@@ -13,7 +13,8 @@ The domain invariants that no generic test can express:
 - Every game has exactly two teams
 - Team minutes sum to 240 per regulation game, plus 25 per overtime period
 - No player appears twice in one game for the same team
-- A player's team on a game date matches an open interval in `dim_player`'s SCD2 history
+- A player's team on a game date matches an open interval in `dim_player_team_stint` — the SCD2
+  affiliation history. `dim_player` deliberately holds no team at all
 - Field goals made never exceed field goals attempted, for any grain
 
 These catch real bugs. A fan-out from a bad join shows up as points not reconciling long before
