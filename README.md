@@ -72,12 +72,33 @@ Not affiliated with or endorsed by the NBA.
 ├── docs/               Architecture, data-source catalog, and ADRs
 │   └── decisions/        Why each choice was made — read these first
 ├── requests/           Work intake — features, bugfixes, data incidents
+├── .claude/            Agent definitions and request-pipeline skills
+│   ├── agents/           Write-capable implementation subagents (see below)
+│   └── skills/           The request stages, plus /update-docs and /commit
 ├── src/nba_platform/   Extraction and landing (transformation lives in transform/)
 ├── transform/          dbt project — bronze / silver / gold
 ├── ops/                Repo governance as code — branch protection, applied via gh
 ├── tests/              pytest + committed API fixtures for offline testing
 └── var/                Gitignored — local landing zone, DuckDB files, caches
 ```
+
+## Implementation agents
+
+[`.claude/agents/`](.claude/agents/) holds write-capable implementation subagents. One
+Markdown file defines one agent, and the harness registers each frontmatter-bearing `.md`
+there as a spawnable type. There is one today — `data-engineer` — alongside the memory file
+it appends to and humans curate.
+
+The split is manager and developer. The main thread keeps the strategy: scoping rationale,
+the roadmap, whether a piece of work is still the right shape. The agent keeps a build
+rulebook, implements one spec against it, and returns a fixed-format handoff into that
+request's `reviews/` directory — so the main thread reviews a summary instead of every edit.
+
+Spawning one has preconditions: a feature branch, a clean working tree, a fresh session, and
+a snapshot of the tree taken before and compared afterward. That last part is load-bearing.
+This harness has no path-level permission system, so an agent's write allowlist is prose
+rather than a sandbox, and the checks around it detect a bad write rather than prevent one.
+The full protocol is in [`.claude/agents/README.md`](.claude/agents/README.md).
 
 ## Setup
 

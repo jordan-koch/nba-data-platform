@@ -64,6 +64,8 @@ statusline-setup
 
 **The registry is resolved at session start.** A definition created mid-session does not
 register in that session. This is load-bearing for Phases 4–5 — see *Consequences* below.
+**Partly superseded the same day — see *Corrections* at the end of this file.** The second
+sentence is too strong: the registry does re-scan mid-session.
 
 Corroborating surface evidence from `claude --help`: `--agents <json>` documents the agent
 shape as `{name: {description, prompt}}`, and `--safe-mode` lists "custom commands and
@@ -244,3 +246,60 @@ git status --porcelain                    → (empty)
 
 No canary survives, so the Phase 2 "exactly one definition" guard cannot redden against one.
 `var/tmp/probe-write-check.txt` was also removed.
+
+## Corrections — later the same day
+
+Three findings from Phases 4–5 that revise or extend what is recorded above. Kept as
+corrections rather than edited into the findings, so the record shows what was believed when.
+
+### C1 — The registry DOES re-scan mid-session · `measured`
+
+Answer 1 says a definition created mid-session "does not register in that session". Too
+strong. `probe-canary.md` genuinely failed to resolve seconds after being written — that
+observation stands — but `data-engineer.md`, also created mid-session, **became spawnable
+later in the same session without a restart**, and was then spawned successfully.
+
+So the registry re-scans on some event this probe did not isolate; it is simply not
+instantaneous on file creation. **Read "Agent type not found" immediately after writing a
+definition as *not yet*, never as *unsupported*.** A fresh session remains the reliable
+route, and the *Consequences* guidance is unaffected.
+
+### C2 — The inherited `CLAUDE.md` can be STALE · `measured` — the important one
+
+Answer 8 establishes that an agent inherits project `CLAUDE.md` unrequested. What it does
+**not** say, and should: **the inherited copy is a snapshot frozen at the parent session's
+start, and can be arbitrarily far behind the file on disk.**
+
+Measured: a subagent spawned from a session that began at commit `46c76d0` received
+`46c76d0`'s `CLAUDE.md` while `HEAD` was `f71e50d`, two commits later. The injected
+`gitStatus` block was stale identically. A **fresh** session inherits the current file —
+verified.
+
+Three consequences, all load-bearing:
+
+- **It nearly destroyed the omission drill.** The stale copy still contained the full
+  pre-relocation rulebook *including the grain rule*, so an in-session drill spawn would
+  have made a PASS unattributable. The drill was spawned from a fresh session instead.
+- **It caused the one false claim in proving run A**, where the agent asserted `CLAUDE.md`
+  state from inherited context without reading the file.
+- **Inherited context is indistinguishable from something the agent verified.** That is the
+  general hazard, and it is why the definition tells the agent to read from disk before
+  asserting repo state.
+
+### C3 — `tools:` is not the only thing gating writes · `measured`
+
+Answer 7 concludes there is no path-level allowlist and that the write bound is prose. True,
+but incomplete in a way that matters: **a harness permission layer sits underneath the tool
+grant and can deny a write the definition explicitly allows.**
+
+Measured across the two omission-drill runs — identical spec, identical allowlisted path
+(`.claude/agents/data-engineer-memory.md`), identical tool grant:
+
+- run 1: the memory write was **blocked**. The agent reported the block and placed the entry
+  text in its handoff instead of working around it. Verified: the file's mtime did not move.
+- run 2: the same write **succeeded**. Verified: mtime moved, entry count 6 → 7.
+
+So the effective write permission is the **intersection** of the declared allowlist and a
+harness layer that is not fully deterministic. Any future dispatch design that treats a
+declared allowlist as authoritative will be wrong some fraction of the time, in the
+restrictive direction. Worth its own request; recorded here so it is not rediscovered.

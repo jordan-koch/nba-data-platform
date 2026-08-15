@@ -59,10 +59,19 @@ Use git's own `--output=`, not PowerShell redirection, which would write a BOM. 
 tree the patch is **empty** by construction — the load-bearing captures are the status, the
 untracked list, `HEAD`, and the stash list.
 
-**3. Spawn.** **The agent registry is resolved at session start.** A definition created or
-changed mid-session does not register in that session, and the spawn fails with *"Agent type
-not found"* — which reads exactly like "this harness doesn't support agents". It is not.
-Spawn from a **fresh session**:
+**3. Spawn — from a fresh session, and this is not optional.** A definition written moments
+ago may not be spawnable yet: the attempt fails with *"Agent type not found"*, which reads
+exactly like "this harness doesn't support agents". It is not — the registry re-scans later.
+Treat that error as *not yet*.
+
+The stronger reason is context, not registration. **The `CLAUDE.md` an agent inherits is a
+snapshot frozen at its parent session's start, and can be commits behind the file on disk.**
+Measured: a subagent spawned from a session that began two commits back received the
+superseded `CLAUDE.md` — including rules that had since been relocated out of it — and then
+asserted repo state from it that was false. A fresh session inherits the current file.
+
+So: spawn from a fresh session, and if the agent's task depends on recent repo state, say so
+in the spec and tell it to read from disk rather than trust what it was given.
 
 ```
 claude -p "<the spec>" --allowedTools "Read Write Edit Grep Glob PowerShell" --model <model>
@@ -88,6 +97,14 @@ Say this plainly, because the design depends on nobody misreading it.
 key gates *which tools* an agent holds — that part is real and enforced — but nothing gates
 *which paths* those tools may touch. The write allowlist in a definition is **prose**. An
 agent that ignores it is not stopped by anything.
+
+**It does not fail safe in the other direction either.** A harness permission layer sits
+underneath the tool grant and can *deny* a write the definition explicitly allows —
+non-deterministically. Measured across two runs of one identical spec: the same allowlisted
+write to the memory file was blocked once and succeeded once. So the effective permission is
+the intersection of the declared allowlist and a layer you cannot see, and a blocked write is
+a normal outcome an agent should report rather than route around. Do not build anything that
+treats a declared allowlist as authoritative in either direction.
 
 So the feature branch, the clean-tree precondition, the pre-spawn snapshot, the post-run
 comparison, and `/commit`'s staged-list-then-yes all catch a bad write **after** it happens.

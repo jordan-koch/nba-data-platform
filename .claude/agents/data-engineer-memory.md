@@ -89,8 +89,27 @@ their place.
   `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
   `harness-behaviour`
 
-- **2026-08-14** · `measured` · The agent registry is resolved at **session start**. A
-  definition created mid-session does not register in that session and spawning it fails with
-  "Agent type not found" — which reads exactly like "unsupported". Spawn from a fresh session.
-  · evidence: `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
+- **2026-08-14** · `measured` · A new agent definition is **not** spawnable immediately after
+  being written — the spawn fails with "Agent type not found", which reads exactly like
+  "unsupported". The registry does re-scan later in the same session, so treat that error as
+  *not yet*. A fresh session is the reliable route. · evidence:
+  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
   `harness-behaviour`
+
+- **2026-08-14** · `measured` · The `CLAUDE.md` and git status injected into your context are
+  a snapshot from the **parent session's start** and can be commits behind the file on disk.
+  Inherited context is indistinguishable from something you verified — **read from disk before
+  asserting repo state.** · evidence:
+  `requests/feature-requests/data-engineer-agent/reviews/proving-run-a-verification.md` · tag:
+  `harness-behaviour`
+
+- **2026-08-14** · `measured` · PowerShell 5.1's `Get-Content` decodes UTF-8 files as ANSI, so
+  each box-drawing char in an ASCII-art tree measures as 3 chars and every column calculation
+  comes out wrong. Use `[System.IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` for any
+  alignment or length check. · evidence: `README.md` layout tree · tag: `tooling-trap`
+
+- **2026-08-14** · `measured` · dbt 1.12 warns on top-level generic-test args
+  (MissingArgumentsPropertyInGenericTestDeprecation): nest them under `arguments:`. The silver
+  grain worked example still shows the old shape, so copying it builds green but noisy. ·
+  evidence: `requests/feature-requests/data-engineer-agent/reviews/proving-run-b-2.md` · tag:
+  `tooling-trap`, `docs-candidate`
