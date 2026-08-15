@@ -157,3 +157,27 @@ would cost the next session real time.
   **zip elementwise**. Normalise with `coalesce(cast(try_cast(v as double) as varchar), v)` so
   `0.500` and `0.5` agree while `DAL` stays text. · evidence:
   `transform/tests/assert_latest_capture_wins.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **sqlfluff LT02 rejects a dbt `{% for %}` loop that generates
+  select-list lines even when the compiled SQL is flawless** — 24 `layout.indent` failures against
+  templated source whose `target/compiled/` output was correctly indented. `sqlfluff fix` is
+  forbidden here, so do not reach for a loop to avoid repetition. · evidence:
+  `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `verified` · DuckDB `unpivot <cte> on a, b, c into name x value y` **parses
+  cleanly under sqlfluff's duckdb dialect** and works as a CTE body. It is the lintable way to
+  compare many measures across two grains without N near-identical union branches, and it keeps
+  the measure name in the failure row. · evidence:
+  `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **Make a fixture-backed test go red without editing a fixture**:
+  copy `tests/fixtures/nba_stats` to a scratch dir, mutate the copy, then run `--target local`
+  with `NBA_LANDING_ROOT` pointed at it and `NBA_WAREHOUSE_PATH` at a scratch `.duckdb`. Same
+  evidence as an in-repo edit, and `tests/` stays in the deny set with no revert to get wrong.
+  (`dbt show --inline` also cannot run on `--target ci` — `:memory:` has no relations.) ·
+  evidence: `transform/models/bronze/sources.yml` · tag: `harness-behaviour`
+
+- **2026-08-15** · `measured` · `Get-Content | Measure-Object -Line` **does not count blank
+  lines**, so it under-reports a memory or handoff file against a physical-line budget (125 vs the
+  real 159 here). Use `(Get-Content f).Count` when a line ceiling is what you are checking. ·
+  evidence: `.claude/agents/data-engineer-memory.md` · tag: `tooling-trap`

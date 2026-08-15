@@ -132,19 +132,37 @@ models:
         description: The game this line belongs to. Joins to `dim_game.game_id`.
         data_tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_game')
+                field: game_id
       - name: player_id
         description: >-
           Stable `PERSON_ID`. Identity is stable across a career; team AFFILIATION is not, which
           is why `team_id` below is read off this same row.
         data_tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_player')
+                field: player_id
       - name: team_id
         description: >-
           The team the player appeared for IN THIS GAME, copied from the observed box-score row.
           Resolving affiliation as-of today rather than as-of the game date is this project's
           likeliest silent join bug, and reading it from the row is what forecloses it here.
+
+
+          THE `relationships` TEST BELOW PROVES THE KEY RESOLVES, NOT THAT THE NAME IS RIGHT.
+          `dim_team` holds one row per franchise under its LATEST observed name, so this join
+          always finds a row and that row may render a 2003-04 game under a name from 2025. Zero
+          orphans is measured; the naming caveat is `dim_team`'s to carry.
         data_tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
       - name: minutes_played
         description: >-
           Minutes played, an INTEGER count on this endpoint rather than `MM:SS`. Renamed from
@@ -191,3 +209,203 @@ models:
         description: >-
           Team point differential while this player was on the floor. Present with zero nulls
           back to 2003-04 on this endpoint, which is why bronze tests it `not_null`.
+
+  - name: dim_team
+    description: >-
+      GRAIN: one row per `team_id` -- one row per FRANCHISE, for the franchise's whole life.
+      Measured over the pilot: 30 rows from 34 distinct `(team_id, team_name)` pairs.
+
+
+      THE NAME IS AS-OF THE LATEST OBSERVATION, AND THAT IS A HAZARD WORTH READING BEFORE YOU
+      JOIN TO IT. Four franchises are observed under two names across the pilot span -- New
+      Orleans Hornets/Pelicans, Los Angeles/LA Clippers, New Jersey Nets/Brooklyn Nets, Seattle
+      SuperSonics/Oklahoma City Thunder. With this grain there is exactly one name per franchise
+      and it is the most recent one, so A FACT-TO-`dim_team` JOIN RENDERS A 2003-04 SEATTLE GAME
+      UNDER THE OKLAHOMA CITY THUNDER. That is the same as-of-today-versus-as-of-game-date bug
+      `docs/data-sources.md` names for players, in the dimension nobody flags it for: the join
+      key is right, the label is anachronistic, and nothing goes red.
+
+
+      THE HISTORICAL NAME IS NOT LOST. Every game's row in
+      `bronze__nba_stats__league_game_log_team` carries `team_name` and `team_abbreviation` AS OF
+      THAT GAME. A report that must show the contemporaneous name reads it from bronze, or waits
+      for a slowly-changing team dimension -- it does not get it from here.
+
+
+      `team_id` IS THE STABLE IDENTIFIER; the name and abbreviation are attributes of it that
+      change on a relocation or a rebrand. A grain keyed on abbreviation would look correct and be
+      wrong: 1610612746 changed only its display name under one unchanged `LAC`, so an
+      abbreviation key silently collapses its two names and reports a clean count that hides the
+      collapse.
+    columns:
+      - name: team_id
+        description: >-
+          Stable franchise identifier. This is the dimension's key and the grain the prose above
+          declares -- the uniqueness test is on this column ALONE, which is what the prose says.
+        data_tests:
+          - unique
+          - not_null
+      - name: team_name
+        description: >-
+          Full franchise name AS OF THE MOST RECENT GAME OBSERVED, e.g. `Oklahoma City Thunder`
+          for 1610612760 including on its 2003-04 rows. Read with the as-of caveat above.
+        data_tests:
+          - not_null
+      - name: team_abbreviation
+        description: >-
+          Three-letter code from THE SAME latest observed row as `team_name`, never resolved
+          independently -- picking each attribute's latest value separately could assemble a
+          (name, abbreviation) pair that never existed in any game.
+        data_tests:
+          - not_null
+
+  - name: dim_player
+    description: >-
+      GRAIN: one row per `player_id` -- the endpoint's `PERSON_ID`, one row per PLAYER for his
+      whole career. Measured over the pilot: 1,306 rows from 1,309 distinct
+      `(player_id, player_name)` pairs.
+
+
+      THIS DIMENSION CARRIES NO TEAM, DELIBERATELY. `PERSON_ID` is stable; AFFILIATION is a
+      function of the game date -- trades, ten-day contracts, two-way players, February buyouts.
+      A `team_id` column here would be an as-of-today answer to a question that only has
+      as-of-game-date answers, and it would be the first thing a downstream join reached for.
+      Affiliation lives on `fact_player_game.team_id`, read off the observed box-score row.
+
+
+      THE NAME IS AS-OF THE LATEST OBSERVATION, same rule and same hazard as `dim_team`, and it
+      is easier to miss because it is three players in thirteen hundred: 202685 and 1628427 gain
+      diacritics over time, and 1626171 goes the other way -- the source shows `Bobby Portis Jr.`
+      in 2019-20 and `Bobby Portis` in 2024-25, so the SUFFIX WAS DROPPED. There is no lexical
+      rule that picks the right spelling; there is only a date. "The name as observed" has no
+      single answer once a player has two spellings, so a 2003-04 row can render under a later
+      one, and the spelling as observed on any given game stays recoverable from
+      `bronze__nba_stats__league_game_log_player`.
+    columns:
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`. This is the dimension's key and the grain the prose above declares.
+        data_tests:
+          - unique
+          - not_null
+      - name: player_name
+        description: >-
+          Display name AS OF THE MOST RECENT GAME OBSERVED. Never a join key -- three players in
+          the pilot corpus alone are spelled two ways, so a name join loses rows in a way an id
+          join cannot.
+        data_tests:
+          - not_null
+
+  - name: fact_team_game
+    description: >-
+      GRAIN: one row per team per game, keyed `(game_id, team_id)`. Measured: 6,956 rows over
+      3,478 games -- exactly two per game, which
+      `transform/tests/assert_every_game_has_exactly_two_teams.sql` asserts independently.
+
+
+      THIS IS WHAT `fact_player_game` RECONCILES TO. For every team-game the players' lines sum
+      to this one, exactly, on 6,956 of 6,956 for points and thirteen other measures --
+      `transform/tests/assert_player_points_reconcile_to_team.sql`. That reconciliation is the
+      cheapest fan-out detector in this repo and the reason both facts exist in one phase.
+
+
+      `tov` IS THE ONE MEASURE THAT DOES NOT RECONCILE BY EQUALITY, AND THAT IS BASKETBALL, NOT A
+      DEFECT. Turnovers can be charged to the TEAM and to no player -- shot-clock violation,
+      five-second inbound. Measured: team `tov` equals the player sum in 3,541 team-games, is
+      HIGHER in 3,415 (mean excess 0.70) and is LOWER in exactly ZERO. So the assertion that holds
+      is an inequality, and it lives in
+      `transform/tests/assert_team_turnovers_never_below_player_sum.sql`.
+
+
+      `minutes_played` USES `fact_player_game`'s NAME, NOT BRONZE'S `min`. Two facts decoded from
+      one endpoint disagreeing about a column name is the kind of drift that surfaces as a silently
+      failing union. Unlike the player grain, team minutes are EXACT: 240 plus 25 per overtime
+      period on 6,956 of 6,956.
+
+
+      MATERIALIZATION IS THE SAME DECLARED DIVERGENCE `fact_player_game` CARRIES. Facts in this
+      layer are MERGE-on-key by rule because box scores get restated days later; this model is
+      full-refresh because all three pilot seasons are long finalized. `unique_key` is declared in
+      the model config so the first in-progress season is a config change, not a rewrite.
+
+
+      ERA COVERAGE: no tracking-derived column appears on this endpoint at any grain, so the
+      2013-14 tracking boundary does not bite this model. The irregular seasons (2011-12, 2019-20,
+      2020-21) are a row-count property here, not a schema one.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [game_id, team_id]
+    columns:
+      - name: game_id
+        description: The game this line belongs to. Joins to `dim_game.game_id`.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_game')
+                field: game_id
+      - name: team_id
+        description: >-
+          The team this line belongs to. Joins to `dim_team.team_id` -- which resolves the KEY,
+          not the era-correct NAME; see `dim_team`'s caveat.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
+      - name: minutes_played
+        description: >-
+          Total team minutes, an INTEGER on this endpoint rather than `MM:SS`. Renamed from
+          bronze's `min` to match `fact_player_game`. Exact at this grain -- 240 plus 25 per
+          overtime period -- unlike the player grain, which the source rounds.
+      - name: fgm
+        description: Field goals made. Reconciles exactly to the player sum.
+      - name: fga
+        description: >-
+          Field goals attempted. Never less than `fgm`, asserted as a singular test. Reconciles
+          exactly to the player sum.
+      - name: fg_pct
+        description: >-
+          Field-goal percentage as the endpoint computed it. A RATIO, not a sum -- deliberately
+          absent from the cross-grain reconciliation, which is additive.
+      - name: fg3m
+        description: Three-point field goals made. Reconciles exactly to the player sum.
+      - name: fg3a
+        description: Three-point field goals attempted. Reconciles exactly to the player sum.
+      - name: fg3_pct
+        description: Three-point percentage. A ratio, not a sum.
+      - name: ftm
+        description: Free throws made. Reconciles exactly to the player sum.
+      - name: fta
+        description: Free throws attempted. Reconciles exactly to the player sum.
+      - name: ft_pct
+        description: Free-throw percentage. A ratio, not a sum.
+      - name: oreb
+        description: Offensive rebounds. Reconciles exactly to the player sum.
+      - name: dreb
+        description: Defensive rebounds. Reconciles exactly to the player sum.
+      - name: reb
+        description: Total rebounds. Reconciles exactly to the player sum.
+      - name: ast
+        description: Assists. Reconciles exactly to the player sum.
+      - name: stl
+        description: Steals. Reconciles exactly to the player sum.
+      - name: blk
+        description: Blocks. Reconciles exactly to the player sum.
+      - name: tov
+        description: >-
+          Turnovers, INCLUDING team turnovers charged to no player. This is the one summable
+          measure that does NOT equal the player sum -- it is greater than or equal to it, never
+          less, over 6,956 measured team-games. Do not add it to the equality reconciliation.
+      - name: pf
+        description: Personal fouls. Reconciles exactly to the player sum.
+      - name: pts
+        description: >-
+          Points scored. The canonical cross-grain reconciliation: 6,956 of 6,956 team-games have
+          the players' points summing exactly to this column.
+      - name: plus_minus
+        description: >-
+          Point differential for the game. At this grain it is the final margin, so the two sides
+          of a game negate each other -- an invariant no test asserts yet; see the handoff.

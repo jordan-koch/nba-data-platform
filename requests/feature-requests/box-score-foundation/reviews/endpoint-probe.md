@@ -285,6 +285,65 @@ parse — a `MM:SS` string misread as a number, or a unit mix-up, breaks it imme
 non-vacuous at 6,956 team-games. It simply does not cross the grain boundary, which is the thing
 the original could not do either.
 
+## Cross-grain reconciliation — what sums, what does not, and why
+
+Measured over all three real pilot seasons, 6,956 team-games, comparing each team-grain measure
+against the sum of its player-grain rows.
+
+**Thirteen measures reconcile exactly, 6,956 of 6,956:** `pts fgm fga ftm fta fg3m fg3a oreb dreb
+reb ast stl blk pf`. That is the cross-grain proof Decision 1 bought by keeping `fact_team_game`
+in scope, and it holds perfectly.
+
+**Two do not, for two entirely different reasons.**
+
+`MIN` — **rounding, unrecoverable.** 4,069 of 6,956 (58.5%). Covered in full above; the player-grain
+reconciliation is dropped and a team-grain regulation-plus-overtime check replaces it.
+
+`TOV` — **team turnovers, and this is basketball rather than a defect.** Only 3,541 of 6,956 agree,
+but the direction is uniform and decisive:
+
+| | team-games |
+|---|---|
+| `team.tov` **lower** than the player sum | **0** |
+| `team.tov` equal to the player sum | 3,541 |
+| `team.tov` **higher** than the player sum | 3,415 |
+
+Excess runs 0 to 7 with a mean of **0.70**, and it is stable across eras — mean excess 0.68 in
+2003-04, 0.63 in 2019-20, 0.80 in 2024-25. That is the **team turnover**: one charged to the team
+rather than to any individual, such as a shot-clock violation or a five-second inbound. The team
+total is therefore `sum(player.tov) + team_turnovers`, and it can never be lower.
+
+**Consequence for the test suite, stated so nobody re-adds it:** `tov` is deliberately EXCLUDED
+from the equality reconciliation, because including it would fail on 49% of correct data. The
+invariant that does hold — `team.tov >= sum(player.tov)` — is asserted separately and is not
+vacuous: it would catch a genuine fan-out or a misattributed turnover.
+
+## Identity drift — `dim_player` has `dim_team`'s problem, and nothing flagged it
+
+The scope and the plan both treat franchise-identity drift as a `dim_team` concern and describe
+`dim_player` as carrying "player_name **as observed**". That phrase is ambiguous the moment a
+player is observed under two spellings, and measured across the pilot, three are:
+
+| `player_id` | Earlier spelling | Later spelling | Change |
+|---|---|---|---|
+| 1626171 | Bobby Portis **Jr.** (2019-20) | Bobby Portis (2024-25) | suffix **dropped** |
+| 202685 | Jonas Valanciunas (2019-20) | Jonas Valančiūnas (2024-25) | diacritics **added** |
+| 1628427 | Vlatko Cancar (2019-20) | Vlatko Čančar (2024-25) | diacritics **added** |
+
+**1,306 distinct `player_id` against 1,309 distinct `(player_id, player_name)` pairs.** A naive
+`select distinct player_id, player_name` therefore produces 1,309 rows for 1,306 players and fails
+its own `unique(player_id)` test — the identical failure the scope predicted for `dim_team` and did
+not predict here.
+
+**The directions are mixed, which is the point.** Two players gained diacritics as the source
+improved its data; one *lost* a suffix. So no lexical tie-break gets all three right — not "prefer
+the longer string", not "prefer the one with diacritics", not "prefer the one with a suffix". Only
+resolving as-of the latest observed game date does, which is why the rule is a date rule and not a
+string rule.
+
+`dim_player` resolves the name as-of the latest observation, matching `dim_team`, and carries the
+same as-of caveat in its persisted description.
+
 ## Still unsettled after this probe
 
 - **A genuine error/5xx body.** See above — unforced on purpose.
