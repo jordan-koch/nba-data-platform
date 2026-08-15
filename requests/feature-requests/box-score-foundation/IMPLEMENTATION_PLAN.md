@@ -1,4 +1,8 @@
-> **Status:** plan · created 2026-08-15 · decided · next: implement
+> **Status:** implemented · created 2026-08-15 · decided · next: commit
+>
+> Built 2026-08-15. Outcome, deviations and the acceptance ledger are in
+> [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md). Four numbers in this plan were corrected
+> by measurement during the build — see the report's Deviations section.
 
 # Implementation Plan — Box-Score Foundation
 

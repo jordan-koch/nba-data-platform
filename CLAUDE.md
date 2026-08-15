@@ -8,8 +8,10 @@ systems that let analysts answer questions, not to answer them ad hoc.
 [`docs/decisions/0001-deliberate-over-engineering.md`](docs/decisions/0001-deliberate-over-engineering.md)
 before concluding something here is overkill — it probably is, and the ADR says why.
 
-> **Phase 0.** Repo, process, and CI harness exist. **No pipeline code yet.** The first data
-> arrives via a feature request.
+> **Phase 1.** The box-score foundation is landed and runs locally end to end: extraction →
+> immutable landing zone → 2 bronze → 6 silver, **72,593 player-games over three pilot seasons**.
+> `transform/models/gold/` is deliberately still empty. Every further dataset arrives via a
+> feature request.
 
 ## Project Map
 
@@ -116,6 +118,16 @@ the relocation exists to remove.
   [`ops/branch-protection.json`](ops/branch-protection.json) match job **display names**. Rename one
   in `ci.yml` without updating that file and PRs wait forever for a check that never reports, with
   no error saying why. Change both in the same commit.
+- **`dbt --project-dir transform` does NOT change directory into it.** Relative paths — the bronze
+  source glob, `profiles.yml`'s DuckDB `path:` — resolve against the *process working directory*,
+  so every one of them is written relative to the **repo root** and every sanctioned invocation
+  launches from there. A `../` prefix resolves outside the repo and fails naming a path that looks
+  entirely plausible. This cost two latent defects on the first slice.
+- **A config that has never run is not a config that works.** `.sqlfluff` shipped an
+  `exclude_rules` written as a TOML list inside an INI file; `configparser` rejected it and *no*
+  sqlfluff command could run at all. It stayed invisible because the CI step is guarded to skip
+  while no `.sql` exists. When a check is conditionally skipped, its configuration is untested —
+  run it by hand before the condition flips.
 
 ## How to Help
 

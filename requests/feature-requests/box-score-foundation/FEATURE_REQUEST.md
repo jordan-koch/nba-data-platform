@@ -1,4 +1,4 @@
-> **Status:** scoped · created 2026-08-12 · decided · next: plan
+> **Status:** implemented · created 2026-08-12 · decided · next: commit
 
 # Feature Request — Box-Score Foundation
 

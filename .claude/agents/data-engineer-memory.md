@@ -33,9 +33,8 @@ Continuation lines are indented under the bullet. Keep an entry to about four li
 `label` is one of this repo's five — `measured`, `verified`, `inferred`, `assumed`,
 `unconfirmed`. An `assumed` claim written as `verified` is worse than no entry.
 
-**Paths are inline code, never markdown links.** The link checker scans only markdown-link
-syntax, so a backticked path is invisible to it — while a real link to a file that later
-moves turns CI red on an unrelated PR. **Cite a repo artifact, never raw environment
+**Paths are inline code, never markdown links** — the link checker scans only markdown-link
+syntax, so a backticked path is invisible to it. **Cite a repo artifact, never raw environment
 output**: this file is committed and the repo is public.
 
 ## The budget — two numbers, two jobs
@@ -47,9 +46,9 @@ sweep before merge. **250 is the runaway ceiling**, enforced mechanically in CI.
 loses what it learned in its last three phases. **At the ceiling, append nothing**: report
 the entry plus *"memory at cap, pruning needed"* under `still-open`.
 
-**Pruning is a main-thread decision, never yours**, and it is made once at the end rather
-than reactively mid-build. Prune what is now enforced by code or a failing test; keep what
-would cost the next session real time.
+**Pruning is a main-thread decision, never yours**, made once at the end. Prune what is now
+enforced by code, by a failing test, or by a comment at its point of use; keep what would
+cost the next session real time.
 
 ## Entries
 
@@ -57,54 +56,41 @@ would cost the next session real time.
   write files with the Write/Edit tools instead. · evidence:
   `.claude/skills/implement-plan/SKILL.md` · tag: `tooling-trap`
 
-- **2026-08-14** · `measured` · PowerShell 5.1's `Get-Content` decodes UTF-8 as ANSI, so each
-  box-drawing char measures as 3 and every column calculation is wrong. Use
-  `[System.IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` for any length check. ·
-  evidence: `README.md` layout tree · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · PowerShell mangles two things silently. `->> '$'` inside a
-  **double-quoted** string loses the `$`, so every DuckDB key returns NULL and a probe gives a
-  coherent but FALSE answer — use a single-quoted here-string. And `2>$null` on a native exe
-  then piped buries real output in binding errors. · evidence: Phase 5 probes · tag:
+- **2026-08-15** · `measured` · Three PowerShell counting/quoting traps. `Get-Content` decodes
+  UTF-8 as ANSI (box-drawing chars measure 3x). `Measure-Object -Line` skips blank lines, so it
+  under-reports against a physical-line budget — use `(Get-Content f).Count`. And `->> '$'` inside
+  a **double-quoted** string loses the `$`, so every DuckDB key returns NULL and a probe gives a
+  coherent but FALSE answer — use a single-quoted here-string. · evidence: Phase 5 probes · tag:
   `tooling-trap`
 
 - **2026-08-14** · `measured` · The `CLAUDE.md` and git status injected into your context are a
-  snapshot from the **parent session's start** and can be commits behind disk. Inherited
-  context is indistinguishable from something you verified — **read from disk before asserting
-  repo state.** · evidence:
+  snapshot from the **parent session's start** and can be commits behind disk. Inherited context
+  is indistinguishable from something you verified — **read from disk before asserting repo
+  state.** · evidence:
   `requests/feature-requests/data-engineer-agent/reviews/proving-run-a-verification.md` · tag:
   `harness-behaviour`
 
 - **2026-08-14** · `measured` · In agent frontmatter the shell tool is **`PowerShell`**, not
-  `Bash`. Declaring `Bash` silently yields an agent with no shell at all. Argument-scoped
-  syntax like `PowerShell(git status:*)` parses but is **not enforced**. · evidence:
-  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
+  `Bash` — declaring `Bash` silently yields an agent with no shell at all. A new agent definition
+  is also not spawnable immediately after being written ("Agent type not found" means *not yet*). ·
+  evidence: `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
   `harness-behaviour`
 
 - **2026-08-14** · `verified` · The bundled `.claude/skills/**/tests/*.mjs` guards are **not**
-  run by CI — no Node step exists — so they execute only when someone remembers. Guards that
-  must actually enforce belong under `tests/`. · evidence: `.github/workflows/ci.yml` · tag:
-  `ci-behaviour`
-
-- **2026-08-15** · `measured` · CI lints **`transform/models` only**; singular tests under
-  `transform/tests` are never linted. Run `uv run sqlfluff lint transform/tests` by hand or
-  style rot accumulates where nobody looks. · evidence: `.github/workflows/ci.yml` · tag:
-  `ci-behaviour`
+  run by CI — no Node step exists — so they execute only when someone remembers. Guards that must
+  actually enforce belong under `tests/`. Relatedly, CI lints **`transform/models` only**, so
+  singular tests under `transform/tests` are never linted; run them by hand. · evidence:
+  `.github/workflows/ci.yml` · tag: `ci-behaviour`
 
 - **2026-08-14** · `measured` · dbt 1.12 warns on top-level generic-test args: nest them under
   `arguments:`. `tests:` is not deprecated, but `data_tests:` replaced it in dbt 1.8. With
   `+severity: error` a warn is a RED build. · evidence:
   `transform/models/silver/README.md` · tag: `tooling-trap`
 
-- **2026-08-15** · `measured` · **`dbt --project-dir X` does NOT chdir into X.** DuckDB resolves
-  a relative `external_location` and a relative `profiles.yml` `path:` against the PROCESS
-  working directory, so both must be written relative to the **repo root**. A `../` prefix
-  fails naming a path that looks plausible. · evidence:
-  `transform/models/bronze/sources.yml` · tag: `tooling-trap`
-
 - **2026-08-15** · `measured` · DuckDB identifiers are case-insensitive **including struct
   fields**, so `resultsets[1].rowset` resolves against `read_json_auto`'s camelCase columns.
-  Writing the envelope decode all-lowercase satisfies `.sqlfluff` with no quoting. · evidence:
+  Writing the envelope decode all-lowercase satisfies `.sqlfluff` with no quoting. Lists are
+  **1-indexed**. · evidence:
   `transform/models/bronze/bronze__nba_stats__league_game_log_player.sql` · tag: `tooling-trap`
 
 - **2026-08-15** · `measured` · **Never select `headers` alongside `unnest(rowset)`** — it
@@ -113,95 +99,51 @@ would cost the next session real time.
   once per file, before the unnest, and carry the integers: 0.19s at full volume. · evidence:
   `transform/tests/assert_bronze_row_count_matches_landed.sql` · tag: `tooling-trap`
 
-- **2026-08-15** · `measured` · sqlfluff AL09 forbids a self-alias (`t.col as col`) while this
-  repo's `aliasing.column = explicit` demands `as` on a genuine one. In a coalesce-plus-full-
-  outer-join CTE, drop the alias on carried-through columns and keep it on coalesced ones. ·
-  evidence: `transform/tests/assert_bronze_row_count_matches_landed.sql` · tag: `tooling-trap`
+- **2026-08-15** · `measured` · **A JSON element cast to VARCHAR keeps its quotes.**
+  `cast(v as varchar)` on a `JSON` value gives `'"0020300001"'` — width 12, not 10 — and passes
+  every uniqueness test while being wrong in every row. Use `->> '$'`. · evidence:
+  `transform/models/bronze/bronze__nba_stats__league_game_log_player.sql` · tag: `tooling-trap`
 
-- **2026-08-15** · `measured` · Two `dbt show` papercuts: it appends its own `limit`, so an
-  inline query carrying one is a parser error (use `--limit N`); and a column named `min`
-  cannot be selected bare — `select t.min` works, `select min from t` does not. · evidence:
-  `transform/models/bronze/schema.yml` · tag: `tooling-trap`
+- **2026-08-15** · `measured` · Three sqlfluff traps, all with green `dbt build` throughout — only
+  lint sees them. AL09 forbids a self-alias while `aliasing.column = explicit` demands `as` on a
+  genuine one. LT02 rejects a `{% for %}` loop generating select-list lines even when the compiled
+  output is perfect. And the duckdb dialect cannot parse a window function on the right of
+  `is distinct from` inside a `case when` — it reports an unparsable section plus a *phantom*
+  `ST03` naming the wrong CTE; hoist the `lag()` into its own CTE. · evidence:
+  `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
 
-- **2026-08-15** · `measured` · `LeagueGameLog.get_request()` sends **and then** parses,
-  indexing `resultSets['LeagueGameLog']` — a non-conforming body raises inside the call instead
-  of being returned, so this transport can never LAND an error response. Use
+- **2026-08-15** · `verified` · DuckDB `unpivot <cte> on a, b, c into name x value y` parses
+  cleanly under sqlfluff's duckdb dialect and works as a CTE body — the lintable way to compare
+  many measures without N union branches, and it keeps the measure name in the failure row. ·
+  evidence: `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `dbt show` appends its own `limit`, so inline SQL carrying one is
+  a parser error — filter with `where` instead. It also elides trailing COLUMNS with `...`, so a
+  wide select silently hides the numbers you ran it for. And a column named `min` cannot be
+  selected bare: `select t.min` works. · evidence:
+  `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **Make a fixture-backed test go red WITHOUT editing a fixture**:
+  copy `tests/fixtures/nba_stats` to a scratch dir, mutate the copy, then run `--target local`
+  with `NBA_LANDING_ROOT` pointed at it and `NBA_WAREHOUSE_PATH` at a scratch `.duckdb`. Same
+  evidence as an in-repo edit, and `tests/` stays in your deny set with no revert to get wrong. ·
+  evidence: `transform/models/bronze/sources.yml` · tag: `harness-behaviour`
+
+- **2026-08-15** · `measured` · **Uniqueness and `mutually_exclusive_ranges` are both blind to a
+  degenerate gaps-and-islands collapse.** Rebuilding the stint model as one row per player-season
+  left both schema tests PASSING; only a singular population floor went red. A range test proves
+  ranges do not overlap, never that the right NUMBER of ranges exists — always pair it with a
+  `> 0` floor on the population it models. · evidence:
+  `transform/tests/assert_stints_did_not_degenerate.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `LeagueGameLog.get_request()` sends **and then** parses, indexing
+  `resultSets['LeagueGameLog']` — a non-conforming body raises inside the call instead of being
+  returned, so this transport can never LAND an error response. Use
   `NBAStatsHTTP().send_api_request`. · evidence: `src/nba_platform/client.py` · tag:
   `tooling-trap`
 
 - **2026-08-15** · `measured` · Serialise **every** document before opening **any** handle. The
-  landing writer used to render its manifest inline at its own `open("xb")`, so an
-  unserialisable optional field landed a payload with no manifest — an aborted capture —
-  instead of failing clean. Any writer taking caller-supplied JSON wants this ordering. ·
-  evidence: `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **`dbt test --select X --target ci` can never pass here** — `ci` is
-  `:memory:`, so a test-only process has no relations and every test ERRORs on a missing schema.
-  Nor does `dbt build --select +X --target ci` help: indirect test selection is EAGER, so singular
-  tests referencing unselected models get pulled in and error. Use `--target local`, or build all. ·
-  evidence: reproduces on Phase-5-only `--select bronze__..._player` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · dbt 1.12 accepts `unique_key` on a `table` materialization silently
-  — no warning, and it lands in `manifest.json` under `config.unique_key`. So "declare the merge key
-  now, switch to incremental later" is a real config-only path, not wishful. · evidence:
-  `transform/models/silver/fact_player_game.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · Two probe traps when checking `+persist_docs` output. DuckDB `like`
-  is CASE-SENSITIVE, so probing a persisted description for a sentence written in caps returns False
-  and reads exactly like a missing sentence — use `ilike`. And `dbt show` elides trailing COLUMNS
-  with `...`, so a wide select silently hides the numbers you ran it for. · evidence:
-  `transform/models/silver/schema.yml` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · Comparing rows without enumerating columns: `to_json(t)` renders
-  a row, `json_extract_string(j, 'col')` takes a bare key, and two `unnest()`s in one select
-  **zip elementwise**. Normalise with `coalesce(cast(try_cast(v as double) as varchar), v)` so
-  `0.500` and `0.5` agree while `DAL` stays text. · evidence:
-  `transform/tests/assert_latest_capture_wins.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **sqlfluff LT02 rejects a dbt `{% for %}` loop that generates
-  select-list lines even when the compiled SQL is flawless** — 24 `layout.indent` failures against
-  templated source whose `target/compiled/` output was correctly indented. `sqlfluff fix` is
-  forbidden here, so do not reach for a loop to avoid repetition. · evidence:
-  `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `verified` · DuckDB `unpivot <cte> on a, b, c into name x value y` **parses
-  cleanly under sqlfluff's duckdb dialect** and works as a CTE body. It is the lintable way to
-  compare many measures across two grains without N near-identical union branches, and it keeps
-  the measure name in the failure row. · evidence:
-  `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **Make a fixture-backed test go red without editing a fixture**:
-  copy `tests/fixtures/nba_stats` to a scratch dir, mutate the copy, then run `--target local`
-  with `NBA_LANDING_ROOT` pointed at it and `NBA_WAREHOUSE_PATH` at a scratch `.duckdb`. Same
-  evidence as an in-repo edit, and `tests/` stays in the deny set with no revert to get wrong.
-  (`dbt show --inline` also cannot run on `--target ci` — `:memory:` has no relations.) ·
-  evidence: `transform/models/bronze/sources.yml` · tag: `harness-behaviour`
-
-- **2026-08-15** · `measured` · `Get-Content | Measure-Object -Line` **does not count blank
-  lines**, so it under-reports a memory or handoff file against a physical-line budget (125 vs the
-  real 159 here). Use `(Get-Content f).Count` when a line ceiling is what you are checking. ·
-  evidence: `.claude/agents/data-engineer-memory.md` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **sqlfluff's duckdb dialect cannot parse a window function on the
-  right of `is distinct from` inside a `case when`.** It emits `Found unparsable section` AND a
-  phantom `ST03 unused CTE` naming a different CTE, which sends you to the wrong place. Hoist the
-  `lag()`/`lead()` into its own CTE. `dbt build` stays green throughout — only lint sees it. ·
-  evidence: `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · `dbt show --inline` **appends its own `limit`**, so a trailing
-  `limit` in the inline SQL dies with `Parser Error: syntax error at or near "limit"`. Filter with
-  `where` — e.g. `where id = (select min(id) from t)` — when probing one row. ·
-  evidence: `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **Uniqueness and `mutually_exclusive_ranges` are blind to a
-  degenerate gaps-and-islands collapse.** Rebuilt the stint model as one row per player-season and
-  both schema tests still PASSED; only the singular population floor went red. A range test proves
-  ranges do not overlap, never that the right number of ranges exist — pair it with a `> 0` floor
-  on the population it is supposed to model. · evidence:
-  `transform/tests/assert_stints_did_not_degenerate.sql` · tag: `tooling-trap`
-
-- **2026-08-15** · `measured` · **The trimmed CI fixture makes zero-length SCD2 ranges the common
-  case, not the edge case**: 216 of 258 stints under `--target ci` against 20 of 1,764 under
-  `--target local`, because trimming leaves most players one game. Any range macro's
-  `zero_length_range_allowed` matters far more for CI than local data suggests. · evidence:
-  `transform/models/silver/schema.yml` · tag: `docs-candidate`
+  landing writer used to render its manifest inline at its own `open("xb")`, so an unserialisable
+  optional field landed a payload with no manifest — an aborted capture — instead of failing
+  clean. Any writer taking caller-supplied JSON wants this ordering. · evidence:
+  `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`

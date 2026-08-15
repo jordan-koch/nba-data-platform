@@ -97,5 +97,5 @@ Every artifact opens with a status blockquote:
 
 | Feature | Stage | Notes |
 |---|---|---|
-| [box-score-foundation](box-score-foundation/) | planned | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Gate 0 **verified** the `leaguegamelog` bulk-endpoint belief (one call = one season, both grains, all three pilot seasons); derives SCD2 player-team affiliation from observed box scores, in its own stint model. 11 phases. |
+| [box-score-foundation](box-score-foundation/) | implemented | Phase 1. Extraction → landing → bronze → silver dimensional core, local end to end. **72,593 player-games over 3,478 games**, three pilot seasons, 2 bronze + 6 silver models, 12 singular tests, ADRs 0008 and 0009. Derives SCD2 player-team affiliation from observed box scores in its own stint model. Gold stays empty by design. |
 | [data-engineer-agent](data-engineer-agent/) | implemented | **Tooling, not pipeline** — the feature *is* a subagent that owns implementation work, with its own definition and an editable memory file. Would be the repo's first write-capable subagent. |
