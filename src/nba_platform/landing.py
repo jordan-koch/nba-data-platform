@@ -34,6 +34,19 @@ because a colon is illegal in a Windows path, which leaves it one-second resolut
 overwrite (forbidden) or fail (useless), the reservation loop advances the *stamp* by a
 second until a free directory is claimed. The manifest records the true `captured_at`
 alongside the possibly-advanced `capture` segment, so the two never silently disagree.
+
+**A capture may carry provenance, and it lives NESTED.** `write_capture(provenance=...)`
+lands an arbitrary JSON-able mapping under the manifest's `provenance` key. It exists because
+a capture that is not a plain full pull — a trimmed fixture, most obviously — has to be able
+to answer "where did these rows come from and what was dropped" without a reader knowing that
+some further filename exists. Two files per capture is the shape ADR 0008 records and the
+immutability tests hash; a third would be a new shape.
+
+Nested rather than merged, and specifically never folded into `parameters`: that field is the
+*wire* parameter dict bronze reads, and trim metadata mixed into it would be indistinguishable
+from something the endpoint was actually asked for. The key is **always present**, holding
+`null` when there is none, so a consumer can tell "this capture was never trimmed" from
+"trimmed, and it happened to retain everything" without having to know the key can be absent.
 """
 
 from __future__ import annotations
@@ -52,6 +65,7 @@ __all__ = [
     "MANIFEST_FILENAME",
     "MANIFEST_VERSION",
     "PAYLOAD_FILENAME",
+    "PROVENANCE_KEY",
     "RUNS_DIRNAME",
     "RUN_MANIFEST_FILENAME",
     "CaptureResult",
@@ -73,6 +87,10 @@ class LandingError(RuntimeError):
 PAYLOAD_FILENAME: Final = "payload.json"
 MANIFEST_FILENAME: Final = "manifest.json"
 MANIFEST_VERSION: Final = 1
+
+# The manifest key optional capture provenance nests under. Named here so a writer and a
+# reader resolve it by name instead of both spelling the same string and drifting apart.
+PROVENANCE_KEY: Final = "provenance"
 
 # Run manifests are audit records of a run, not landed data. The leading underscore marks
 # the directory as "not a landing partition": the bronze source globs
@@ -249,6 +267,7 @@ def write_capture(
     request_url: str | None = None,
     client_name: str = "",
     client_version: str = "",
+    provenance: Mapping[str, Any] | None = None,
     landing_root: Path | None = None,
     recapture: bool = False,
 ) -> CaptureResult:
@@ -257,6 +276,13 @@ def write_capture(
     Returns a skipped `CaptureResult` when a completed capture of `partition` already
     exists and `recapture` is False. With `recapture=True` a new capture directory is
     written beside the existing ones and no existing byte is read, moved or changed.
+
+    `provenance` is any JSON-able mapping describing how this capture came to hold the rows
+    it holds — trim provenance for a fixture, most obviously. It lands nested under the
+    manifest's `provenance` key, never merged into `parameters`, and the key is written as
+    `null` when there is none. Nothing else about the write changes: still two files, still
+    exclusive-create, and `payload_sha256` still describes the payload rather than the
+    manifest.
     """
     root = _resolve_landing_root(landing_root)
     if not recapture:
@@ -302,14 +328,24 @@ def write_capture(
         "client": client_name,
         "client_version": client_version,
         "elapsed_seconds": elapsed_seconds,
+        # Nested, optional, and always present. See the module docstring: merging this into
+        # `parameters` would make trim metadata indistinguishable from something the endpoint
+        # was asked for, and omitting the key would make "never trimmed" and "trimmed to
+        # everything" tell apart only by a convention a reader has to already know.
+        PROVENANCE_KEY: dict(provenance) if provenance is not None else None,
     }
+
+    # Both documents are serialised before either is written, so a manifest that cannot be
+    # rendered — a provenance value that is not JSON-able — fails with nothing on disk,
+    # rather than leaving a payload with no manifest beside it and calling it an aborted write.
+    manifest_data = _serialize(manifest)
 
     # Exclusive-create, binary: an existing file raises FileExistsError rather than being
     # truncated. Payload first, manifest last — the manifest is the completeness marker.
     with payload_path.open("xb") as handle:
         handle.write(payload_data)
     with manifest_path.open("xb") as handle:
-        handle.write(_serialize(manifest))
+        handle.write(manifest_data)
 
     return CaptureResult(
         partition=partition,
