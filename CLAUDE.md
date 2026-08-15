@@ -25,6 +25,7 @@ nba-data-platform/
 │   ├── bugfix-requests/   Something failed
 │   └── data-incidents/    Nothing failed and the data is wrong
 ├── .claude/skills/    The four request stages, plus /update-docs (doc gate) and /commit (the committer)
+├── .claude/agents/    Write-capable implementation subagents — and the build rulebook they own
 ├── src/nba_platform/  Extraction + landing (transformation lives in transform/)
 ├── transform/         dbt project — bronze / silver / gold
 ├── ops/               Repo governance as code — branch protection + how to restore it
@@ -72,7 +73,9 @@ yet — see the roadmap in [`README.md`](README.md).
   semantics, cost — and those are decisions, not implementation details.
 - **Subagents get read-only git.** When spawning any subagent, tell it git is read-only —
   never `checkout`/`reset`/`restore`/`clean`/`stash` or anything that discards working-tree
-  state. Bubble a destructive-git *need* back up.
+  state. Bubble a destructive-git *need* back up. **Editing a tracked file is not a git
+  operation**, so a write-capable builder with a declared write allowlist sits inside this
+  rule rather than being an exception to it — see [`.claude/agents/`](.claude/agents/README.md).
 - **Label your epistemics.** *Measured*, *verified*, *inferred*, *assumed*, *unconfirmed* mean
   different things. An unconfirmed claim about an endpoint's shape is a task, not a fact. This
   matters more than usual here because most of this repo is written by agents against docs
@@ -83,37 +86,26 @@ yet — see the roadmap in [`README.md`](README.md).
 
 ## Data Layer
 
-- **Resolve by name, never hardcode.** dbt's `ref()` and `source()` are compiler-enforced —
-  use them. In Python, resolve paths through the config layer, never by literal string or
-  `parents[N]` walks.
-- **The landing zone is immutable.** Raw API responses are written once and never mutated.
-  This is what makes data-incident triage tractable: if bronze and the landed JSON disagree,
-  bronze is wrong, and you can always diff against a fresh pull. It also means history replays
-  without re-hitting a rate-limited API.
-- **Bronze is 1:1 with the source.** Typing, casing, deduplication. No joins, no business logic,
-  no filtering, no semantic renaming. Those happen in silver where they can be documented.
-- **Silver declares its grain and proves it.** Every model states its grain in prose in
-  `schema.yml` *and* enforces it with a uniqueness test. A grain claimed but not tested is a
-  grain that will quietly break.
-- **Facts are `MERGE`-on-key, not append-only.** Box scores get restated after the fact,
-  sometimes days later. Nightly runs re-pull a trailing window rather than only yesterday.
-- **Layer promotion is gated on tests.** A layer that fails its tests must not feed the next one.
-- **No bulk data in git.** Code, config, docs, and small fixtures only. The repo is public and
-  `.gitignore` blocks the common data formats — if you find yourself wanting to commit a
-  `.parquet`, something has gone wrong.
+**The build rulebook lives in [`.claude/agents/data-engineer.md`](.claude/agents/data-engineer.md),
+which is its single owner** — read it before writing extraction, landing, or dbt code, whether
+you are the agent or the main thread building directly. What moved there, by topic: name resolution
+in dbt and in Python; landing-zone immutability; the bronze fidelity rule; **silver's grain
+contract**; restatement and merge semantics for facts; the layer-promotion gate; the bulk-data-in-git
+ban; request pacing and backoff against `stats.nba.com`; the bulk-endpoint preference (still
+`unconfirmed`); player-affiliation date resolution; and the Windows/Linux line-ending rule.
+
+These rules used to be stated here in full. They were relocated so they have one owner instead of two
+copies that drift — the granular *how to build* belongs with the builder; this file stays the map and
+the *how we work*. A guard in `tests/test_agent_contract.py` asserts every one of them survived the
+move.
+
+**This pointer deliberately names topics rather than restating rules.** A reader learns what is in
+the rulebook and goes and reads it; nobody can follow a rule from this list without opening the
+definition. That is the point: a rule restated here in actionable form would recreate the second copy
+the relocation exists to remove.
 
 ## Constraints & Gotchas
 
-- **`stats.nba.com` blocks impolite clients** — it does not throttle them, and a block is hard
-  to distinguish from a transient failure. Default pacing is 0.6s between requests with
-  exponential backoff. Read [`docs/data-sources.md`](docs/data-sources.md) before lowering it.
-- **Prefer bulk endpoints.** The `leaguegamelog` family is believed to return a full season per
-  call; the per-game `boxscore*` family needs one call per game. For a 23-season backfill that's
-  the difference between ~50 calls and ~60,000. `unconfirmed` — verify before building on it.
-- **Player *affiliation* is date-dependent, not player identity.** `PERSON_ID` is stable. But
-  trades, ten-day contracts, two-way players, and buyouts mean a player's team is a function of
-  the game date. Resolving as-of *today* instead of as-of the *game* is the most likely source of
-  silently wrong joins in this project.
 - **Cost is a guardrail.** A cluster left running over a weekend is this repo's version of
   silently destroyed work. Auto-suspend everything; keep billing alarms on. Anything that spends
   cloud money or touches prod is a user-run action, not an agent one.
@@ -123,7 +115,6 @@ yet — see the roadmap in [`README.md`](README.md).
   [`ops/branch-protection.json`](ops/branch-protection.json) match job **display names**. Rename one
   in `ci.yml` without updating that file and PRs wait forever for a check that never reports, with
   no error saying why. Change both in the same commit.
-- **Windows dev, Linux CI.** `.gitattributes` normalizes to LF. Don't defeat it.
 
 ## How to Help
 

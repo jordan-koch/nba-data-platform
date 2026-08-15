@@ -89,3 +89,4 @@ Every artifact opens with a status blockquote:
 | Feature | Stage | Notes |
 |---|---|---|
 | [box-score-foundation](box-score-foundation/) | intake | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Verifies the `leaguegamelog` bulk-endpoint belief; derives SCD2 player-team affiliation from observed box scores. |
+| [data-engineer-agent](data-engineer-agent/) | implemented | **Tooling, not pipeline** — the feature *is* a subagent that owns implementation work, with its own definition and an editable memory file. Would be the repo's first write-capable subagent. |
