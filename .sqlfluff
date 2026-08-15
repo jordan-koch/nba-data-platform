@@ -4,10 +4,12 @@ templater = dbt
 # models must run on both, and linting the wrong dialect hides portability breaks.
 dialect = duckdb
 max_line_length = 100
-exclude_rules = [
-    # Column ordering in SELECT is a readability judgment, not a lint.
-    "ST06",
-]
+# Column ordering in SELECT is a readability judgment, not a lint.
+# NOTE: this file is INI, parsed by configparser — values are comma-separated scalars, NOT
+# TOML/Python list literals. A bracketed list here raises ParsingError and NO sqlfluff command
+# can run at all, which stayed invisible until the repo's first .sql file flipped the CI step
+# at .github/workflows/ci.yml:78-85 from skipped to live.
+exclude_rules = ST06
 
 [sqlfluff:templater:dbt]
 project_dir = transform

@@ -45,6 +45,25 @@ htmlcov/
 dist/
 build/
 
+# ─── Pipeline panel output ────────────────────────────────────────────────────
+# The scoping and planning panels emit large mechanical serializations of their raw
+# agent output (~100-230 KB each). Everything the final artifact depends on is carried
+# verbatim INTO that artifact, so the tracked document stands alone in a fresh clone;
+# these are the working files behind it and stay machine-local.
+#
+# Deliberately narrow — only the panel dumps. Everything else under reviews/ stays
+# TRACKED, because it is evidence rather than working material: harness and endpoint
+# probes, agent handoffs, tree-integrity records. Blocker fix F2 of the
+# data-engineer-agent scope moved that evidence out of gitignored var/ precisely so it
+# would be reproducible and visible to CI, and tests/test_handoff_contract.py globs
+# reviews/*.md — an ignored reviews/ would leave it linting nothing while still green.
+#
+# Reference these files as inline code, never as Markdown links: they are absent from a
+# fresh clone, and tests/test_doc_links.py is not gitignore-aware, so a link to one
+# passes locally and fails in CI.
+requests/*/*/reviews/*-proposals.md
+requests/*/*/reviews/*-adversarial.md
+
 # ─── dbt ──────────────────────────────────────────────────────────────────────
 target/
 dbt_packages/

@@ -1,0 +1,269 @@
+version: 2
+
+# The source contract for bronze's two models -- the same endpoint at its two grains. A
+# `not_null` here is a statement that the upstream promised the column, so a broken promise
+# fails at the boundary rather than four layers downstream as a wrong number.
+#
+# Column ORDER in this file is load-bearing, not cosmetic: `tests/test_fixture_schema_drift.py`
+# asserts it equals each committed fixture's `resultSets[0].headers` in order and in both
+# directions, per grain. Columns carrying `meta.endpoint_column: false` are recovered from the
+# landing path rather than projected from the envelope; every other column below is an
+# endpoint column and appears in header order.
+#
+# The two grains share 29 of their columns and every one of those descriptions is repeated
+# rather than anchored: a YAML anchor would make the drift guard's ordered comparison read
+# through an indirection, and the guard is the reason the order is trustworthy at all.
+
+models:
+  - name: bronze__nba_stats__league_game_log_player
+    description: >-
+      `leaguegamelog` at player grain, decoded 1:1 from the landed payload, then deduplicated
+      to ONE ROW PER (game_id, player_id) by latest capture. Deduplication on the natural key
+      is the only transformation bronze permits beyond typing and casing; the model is
+      otherwise faithful to the landing zone, and `transform/tests/` proves both halves of
+      that claim.
+
+
+      SOURCE CONTRACT. Endpoint `leaguegamelog` on stats.nba.com, called with
+      `LeagueID=00`, `Season=<YYYY-YY>`, `SeasonType=Regular Season`, `PlayerOrTeam=P`,
+      `Counter=0`, `Sorter=DATE`, `Direction=ASC`, `DateFrom=`, `DateTo=`. One call returns
+      an entire season at this grain; the response envelope is column-store
+      (`headers` + `rowSet`), and the 32 columns below are its header list in order.
+
+
+      ERA COVERAGE. `plus_minus` was the column most likely to carry its own availability
+      cliff, and it does not: Gate 0 and the Phase 3 probe both measured it present in
+      2003-04 with ZERO nulls, which is why it is tested `not_null` here. No
+      tracking-derived column appears in this endpoint at all, so the 2013-14 tracking
+      boundary does not bite this model and no era-nullable machinery is warranted. The
+      irregular seasons (2011-12, 2019-20, 2020-21) are a row-count property, not a schema
+      one -- nothing here assumes 82 games or an October-April calendar.
+
+
+      TYPES. `game_id` and `season_id` stay VARCHAR because both are zero-padded numeric
+      strings. `min` is an integer count of minutes on this endpoint, NOT `MM:SS` -- measured,
+      not assumed. `video_available` is the raw 0/1 flag; converting it to a boolean would be
+      semantic renaming, which belongs in silver.
+
+    columns:
+      - name: season_id
+        description: >-
+          NBA season identifier as a zero-padded string, e.g. `22003` -- a leading digit
+          encoding season type followed by the four-digit start year.
+      - name: player_id
+        description: Stable `PERSON_ID`. Identity is stable; team AFFILIATION is not.
+        data_tests:
+          - not_null
+      - name: player_name
+        description: Display name as the endpoint spelled it, not conformed.
+      - name: team_id
+        description: >-
+          The team the player appeared for IN THIS GAME. Resolving affiliation as-of today
+          rather than as-of the game date is this project's likeliest silent join bug.
+        data_tests:
+          - not_null
+      - name: team_abbreviation
+        description: Three-letter team code as of this game, e.g. `DAL`.
+      - name: team_name
+        description: Full team name as of this game, e.g. `Dallas Mavericks`.
+      - name: game_id
+        description: >-
+          Zero-padded 10-character game identifier, VARCHAR. Numeric inference destroys the
+          padding while every join still appears to work.
+        data_tests:
+          - not_null
+      - name: game_date
+        description: Date the game was played, typed as DATE from an ISO `YYYY-MM-DD` string.
+        data_tests:
+          - not_null
+      - name: matchup
+        description: Free text, e.g. `DAL @ LAL` or `DAL vs. LAL`. Home/away is parsed in silver.
+      - name: wl
+        description: '`W` or `L` from this player''s team''s perspective.'
+      - name: min
+        description: Minutes played, an integer count on this endpoint rather than `MM:SS`.
+      - name: fgm
+        description: Field goals made.
+      - name: fga
+        description: Field goals attempted.
+      - name: fg_pct
+        description: Field-goal percentage. NULL when no shot was attempted -- a real null, not zero.
+      - name: fg3m
+        description: Three-point field goals made.
+      - name: fg3a
+        description: Three-point field goals attempted.
+      - name: fg3_pct
+        description: Three-point percentage. NULL when no three was attempted.
+      - name: ftm
+        description: Free throws made.
+      - name: fta
+        description: Free throws attempted.
+      - name: ft_pct
+        description: Free-throw percentage. NULL when no free throw was attempted.
+      - name: oreb
+        description: Offensive rebounds.
+      - name: dreb
+        description: Defensive rebounds.
+      - name: reb
+        description: Total rebounds.
+      - name: ast
+        description: Assists.
+      - name: stl
+        description: Steals.
+      - name: blk
+        description: Blocks.
+      - name: tov
+        description: Turnovers.
+      - name: pf
+        description: Personal fouls.
+      - name: pts
+        description: Points scored.
+      - name: plus_minus
+        description: >-
+          Team point differential while this player was on the floor. Present with zero nulls
+          back to 2003-04, which is why the promise is tested here.
+        data_tests:
+          - not_null
+      - name: fantasy_pts
+        description: >-
+          The endpoint's own fantasy-scoring number. Carried because bronze is 1:1 with the
+          source; whether anything downstream should use it is a silver decision.
+      - name: video_available
+        description: Raw 0/1 flag from the endpoint. Not converted to a boolean -- that is silver's call.
+      - name: captured_at
+        description: >-
+          When this capture was landed, recovered from the path's `capture=` segment (compact
+          UTC, colon-free because a colon is illegal in a Windows path). Provenance, not
+          payload -- it is what the latest-capture-wins dedup orders by.
+        meta:
+          endpoint_column: false
+
+  - name: bronze__nba_stats__league_game_log_team
+    description: >-
+      `leaguegamelog` at team grain, decoded 1:1 from the landed payload, then deduplicated
+      to ONE ROW PER (game_id, team_id) by latest capture. Two rows per game, one per side.
+
+
+      SOURCE CONTRACT. Endpoint `leaguegamelog` on stats.nba.com, called with
+      `LeagueID=00`, `Season=<YYYY-YY>`, `SeasonType=Regular Season`, `PlayerOrTeam=T`,
+      `Counter=0`, `Sorter=DATE`, `Direction=ASC`, `DateFrom=`, `DateTo=`. One call returns
+      an entire season at this grain; the response envelope is column-store
+      (`headers` + `rowSet`), and the 29 columns below are its header list in order. The
+      team header list is the player list MINUS `PLAYER_ID`, `PLAYER_NAME` and
+      `FANTASY_PTS` -- measured identical across 2003-04, 2019-20 and 2024-25.
+
+
+      WHY IT EXISTS BEFORE ITS FACT DOES. The team-grain fact lands in Phase 7. This model
+      is built now because it is the source of `dim_game`'s home/away side and of
+      `dim_team`, and at one call per season it is three extra API calls for the pilot.
+
+
+      RESTATEMENT. This is the grain the committed corpus restates: `season=2003-04` holds
+      two captures, and the later one supersedes its overlapping natural keys. Box scores
+      really are restated days later, which is why the dedup is here and why nightly runs
+      re-pull a trailing window rather than only yesterday.
+
+
+      ERA COVERAGE. No tracking-derived column appears in this endpoint at any grain, so
+      the 2013-14 tracking boundary does not bite this model and no era-nullable machinery
+      is warranted. The irregular seasons (2011-12, 2019-20, 2020-21) are a row-count
+      property, not a schema one.
+
+
+      TYPES. `game_id` and `season_id` stay VARCHAR because both are zero-padded numeric
+      strings. `min` is an integer count of TEAM minutes on this endpoint (240 in
+      regulation, more with overtime), NOT `MM:SS` -- measured, not assumed.
+      `video_available` is the raw 0/1 flag; converting it to a boolean would be semantic
+      renaming, which belongs in silver.
+
+    columns:
+      - name: season_id
+        description: >-
+          NBA season identifier as a zero-padded string, e.g. `22003` -- a leading digit
+          encoding season type followed by the four-digit start year.
+      - name: team_id
+        description: >-
+          The team this row's line belongs to. Stable across the franchise's life; a
+          relocation or rename changes `team_name` and `team_abbreviation`, not this.
+        data_tests:
+          - not_null
+      - name: team_abbreviation
+        description: Three-letter team code as of this game, e.g. `DAL`.
+      - name: team_name
+        description: Full team name as of this game, e.g. `Dallas Mavericks`.
+      - name: game_id
+        description: >-
+          Zero-padded 10-character game identifier, VARCHAR. Numeric inference destroys the
+          padding while every join still appears to work.
+        data_tests:
+          - not_null
+      - name: game_date
+        description: Date the game was played, typed as DATE from an ISO `YYYY-MM-DD` string.
+        data_tests:
+          - not_null
+      - name: matchup
+        description: >-
+          Free text, e.g. `DAL @ LAL` or `DAL vs. LAL`. This is where home/away lives, and
+          parsing it is silver's job -- not bronze's.
+      - name: wl
+        description: '`W` or `L` from this team''s perspective.'
+      - name: min
+        description: >-
+          Team minutes, an integer count on this endpoint rather than `MM:SS`. 240 in a
+          regulation game, plus 25 per overtime period.
+      - name: fgm
+        description: Field goals made.
+      - name: fga
+        description: Field goals attempted.
+      - name: fg_pct
+        description: Field-goal percentage. NULL when no shot was attempted -- a real null, not zero.
+      - name: fg3m
+        description: Three-point field goals made.
+      - name: fg3a
+        description: Three-point field goals attempted.
+      - name: fg3_pct
+        description: Three-point percentage. NULL when no three was attempted.
+      - name: ftm
+        description: Free throws made.
+      - name: fta
+        description: Free throws attempted.
+      - name: ft_pct
+        description: Free-throw percentage. NULL when no free throw was attempted.
+      - name: oreb
+        description: Offensive rebounds.
+      - name: dreb
+        description: Defensive rebounds.
+      - name: reb
+        description: Total rebounds.
+      - name: ast
+        description: Assists.
+      - name: stl
+        description: Steals.
+      - name: blk
+        description: Blocks.
+      - name: tov
+        description: Turnovers.
+      - name: pf
+        description: Personal fouls.
+      - name: pts
+        description: Points scored.
+      - name: plus_minus
+        description: >-
+          Team point differential for the game. At this grain it is the final margin, and
+          the two sides of a game negate each other -- an invariant silver's fact model is
+          the right place to assert.
+        data_tests:
+          - not_null
+      - name: video_available
+        description: >-
+          Raw 0/1 flag from the endpoint. Not converted to a boolean -- that is silver's
+          call. Deliberately read by NO model and NO reconciliation, which is what makes it
+          safe to use as the restated-capture sentinel in
+          `transform/tests/assert_latest_capture_wins.sql`.
+      - name: captured_at
+        description: >-
+          When this capture was landed, recovered from the path's `capture=` segment (compact
+          UTC, colon-free because a colon is illegal in a Windows path). Provenance, not
+          payload -- it is what the latest-capture-wins dedup orders by.
+        meta:
+          endpoint_column: false

@@ -17,6 +17,27 @@ clean-targets:
 # ─── Medallion layers ─────────────────────────────────────────────────────────
 # Promotion between layers is gated on tests: a layer that fails its tests must not
 # feed the next one. See requests/data-incidents/README.md for why that gate exists.
+#
+# The tags below make that gate runnable rather than aspirational, and these are the
+# task boundaries an orchestrator would eventually inherit:
+#
+#   dbt build --select tag:bronze --indirect-selection=cautious \
+#       --project-dir transform --profiles-dir transform --target ci
+#   dbt build --select tag:bronze tag:silver --indirect-selection=cautious \
+#       --project-dir transform --profiles-dir transform --target ci
+#
+# `--indirect-selection=cautious` IS REQUIRED, not stylistic. dbt's default is eager, so
+# selecting tag:bronze also pulls in singular tests that merely REFERENCE a bronze model
+# while also referencing an unselected silver one - they then error on a relation the
+# selection never built. Measured: eager gives ERROR=3 on tag:bronze and ERROR=5 on
+# tag:silver; cautious gives PASS=13 and PASS=62 with zero errors.
+#
+# Run from the REPO ROOT. `--project-dir` does not change directory, so relative paths
+# resolve against the process working directory.
+#
+# Note `dbt test --select <model>` needs `--target local`: the ci target is `:memory:`,
+# so a test-only process starts an empty database and every selected test errors on a
+# missing relation. Use `dbt build` under ci, which creates the relations it then tests.
 models:
   nba_platform:
     +persist_docs:

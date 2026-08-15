@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Jordan Koch" }]
-dependencies = []
+dependencies = ["nba_api>=1.4"]
 
-# Runtime dependencies stay empty until a feature request needs one. Extraction
-# (nba_api, httpx) arrives with the source that requires it — see
-# requests/feature-requests/README.md.
+# Runtime dependencies arrive with the source that requires them, never speculatively.
+# nba_api is the first, landed by the box-score-foundation feature request — it is the
+# only transport that reaches stats.nba.com from here (a raw request times out). It pulls
+# pandas and requests transitively; both are confined to src/nba_platform/client.py, the
+# one declared untyped boundary. See requests/feature-requests/README.md.
 
 [dependency-groups]
 dev = [
@@ -72,6 +74,14 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 files = ["src", "tests"]
+
+# The one declared untyped boundary, rather than a hundred discovered `# type: ignore`s.
+# nba_api ships no type information and pandas leaks through its return types; both are
+# confined to src/nba_platform/client.py so the ignore stays scoped to the modules that
+# genuinely have no stubs. Adding a module here is a decision — say why in the same commit.
+[[tool.mypy.overrides]]
+module = ["nba_api.*", "pandas.*"]
+ignore_missing_imports = true
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

@@ -23,93 +23,139 @@ session.
 
 ## Entry format
 
-One bullet per entry. The opening line is fixed shape so it can be checked mechanically:
+One bullet per entry, opening line a fixed shape so it can be checked mechanically:
 
 ```
 - **YYYY-MM-DD** · `label` · <the claim> · evidence: <pointer> · tag: <routing tag>
 ```
 
 Continuation lines are indented under the bullet. Keep an entry to about four lines.
+`label` is one of this repo's five — `measured`, `verified`, `inferred`, `assumed`,
+`unconfirmed`. An `assumed` claim written as `verified` is worse than no entry.
 
-**`label` is one of the five this repo uses** — `measured`, `verified`, `inferred`,
-`assumed`, `unconfirmed` — and they mean different things. An `assumed` claim written as
-`verified` is worse than no entry.
+**Paths are inline code, never markdown links** — the link checker scans only markdown-link
+syntax, so a backticked path is invisible to it. **Cite a repo artifact, never raw environment
+output**: this file is committed and the repo is public.
 
-Recorded so it is not rediscovered as a bug: the repo carries **three** label vocabularies
-that do not agree. `CLAUDE.md` names the five above; `.claude/skills/update-docs/SKILL.md`
-names four for `docs/data-sources.md`, including a `documented` that does not exist in the
-five; `docs/data-sources.md` itself names fewer still. **The five govern here**, so a claim
-that is merely written down somewhere — not run by you — is `assumed`, not `documented`.
-Reconciling the three sets is out of scope for this file.
+## The budget — two numbers, two jobs
 
-**Paths are inline code, never markdown links.** Grounded, not stylistic: the link checker
-scans only markdown-link syntax, so a backticked path is invisible to it — while a real link
-to a file that later moves turns CI red on an unrelated PR with a confusing failure. (This
-very rule is why the sentence you are reading spells out "markdown links" instead of showing
-the bracket-and-parenthesis form: writing the shape would *be* a link, and the checker would
-try to resolve it.)
+**~120 physical lines is the curation target**, enforced by judgment at the `/update-docs`
+sweep before merge. **250 is the runaway ceiling**, enforced mechanically in CI.
 
-**Cite a repo artifact, never raw environment output.** This file is committed and this repo
-is public. Secret scanning catches credentials by content; it does not catch a pasted
-machine path, an account id, or a response fragment.
+**Append freely while you work.** Do not ration yourself toward 120 — that is how a build
+loses what it learned in its last three phases. **At the ceiling, append nothing**: report
+the entry plus *"memory at cap, pruning needed"* under `still-open`.
 
-## The 120-line cap
-
-This file is capped at **120 physical lines**, counted as `len(text.splitlines())` — what a
-reader scrolls, and what the pytest guard counts. It is enforced in CI.
-
-**At cap, append nothing.** Do not delete an older entry to make room, and do not silently
-drop what you learned. Report the entry you wanted to add, plus the words *"memory at cap,
-pruning needed"*, under `still-open` and `docs-delta` in your handoff. **Pruning is a
-main-thread decision, never yours** — you cannot see which entries have stopped earning
-their place.
+**Pruning is a main-thread decision, never yours**, made once at the end. Prune what is now
+enforced by code, by a failing test, or by a comment at its point of use; keep what would
+cost the next session real time.
 
 ## Entries
 
 - **2026-08-14** · `assumed` · PowerShell 5.1's `Set-Content` and `Out-File` mangle UTF-8;
-  write files with the Write/Edit tools instead. · evidence: `.claude/skills/implement-plan/SKILL.md:111-112`
-  · tag: `tooling-trap`
+  write files with the Write/Edit tools instead. · evidence:
+  `.claude/skills/implement-plan/SKILL.md` · tag: `tooling-trap`
 
-- **2026-08-14** · `verified` · The bundled `.claude/skills/**/tests/*.mjs` guards are **not**
-  run by CI — the workflow has exactly three jobs and no Node step, so they execute only when
-  an agent remembers to run them by hand. Guards that must actually enforce belong under
-  `tests/`. · evidence: `.github/workflows/ci.yml`, `ops/branch-protection.json:4` · tag:
-  `ci-behaviour`
+- **2026-08-15** · `measured` · Three PowerShell counting/quoting traps. `Get-Content` decodes
+  UTF-8 as ANSI (box-drawing chars measure 3x). `Measure-Object -Line` skips blank lines, so it
+  under-reports against a physical-line budget — use `(Get-Content f).Count`. And `->> '$'` inside
+  a **double-quoted** string loses the `$`, so every DuckDB key returns NULL and a probe gives a
+  coherent but FALSE answer — use a single-quoted here-string. · evidence: Phase 5 probes · tag:
+  `tooling-trap`
 
-- **2026-08-14** · `assumed` · sqlfluff errors rather than no-ops when its model selection
-  is empty, which is why the CI step that runs it is wrapped in a conditional. Adding the
-  repo's first `.sql` file flips that step from skipped to running. · evidence:
-  `.github/workflows/ci.yml:78-85` · tag: `ci-behaviour`
-
-- **2026-08-14** · `measured` · In agent frontmatter the shell tool is named **`PowerShell`**,
-  not `Bash`, on this box. Declaring `Bash` silently yields an agent with no shell at all —
-  no warning, no error — and therefore no way to run `pytest`, `mypy` or `dbt build`.
-  Argument-scoped syntax like `PowerShell(git status:*)` is parsed but **not enforced**: the
-  tool arrives unrestricted. · evidence:
-  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
-  `harness-behaviour`
-
-- **2026-08-14** · `measured` · A new agent definition is **not** spawnable immediately after
-  being written — the spawn fails with "Agent type not found", which reads exactly like
-  "unsupported". The registry does re-scan later in the same session, so treat that error as
-  *not yet*. A fresh session is the reliable route. · evidence:
-  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
-  `harness-behaviour`
-
-- **2026-08-14** · `measured` · The `CLAUDE.md` and git status injected into your context are
-  a snapshot from the **parent session's start** and can be commits behind the file on disk.
-  Inherited context is indistinguishable from something you verified — **read from disk before
-  asserting repo state.** · evidence:
+- **2026-08-14** · `measured` · The `CLAUDE.md` and git status injected into your context are a
+  snapshot from the **parent session's start** and can be commits behind disk. Inherited context
+  is indistinguishable from something you verified — **read from disk before asserting repo
+  state.** · evidence:
   `requests/feature-requests/data-engineer-agent/reviews/proving-run-a-verification.md` · tag:
   `harness-behaviour`
 
-- **2026-08-14** · `measured` · PowerShell 5.1's `Get-Content` decodes UTF-8 files as ANSI, so
-  each box-drawing char in an ASCII-art tree measures as 3 chars and every column calculation
-  comes out wrong. Use `[System.IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` for any
-  alignment or length check. · evidence: `README.md` layout tree · tag: `tooling-trap`
+- **2026-08-14** · `measured` · In agent frontmatter the shell tool is **`PowerShell`**, not
+  `Bash` — declaring `Bash` silently yields an agent with no shell at all. A new agent definition
+  is also not spawnable immediately after being written ("Agent type not found" means *not yet*). ·
+  evidence: `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
+  `harness-behaviour`
 
-- **2026-08-14** · `measured` · dbt 1.12 warns on top-level generic-test args
-  (MissingArgumentsPropertyInGenericTestDeprecation): nest them under `arguments:`. `tests:`
-  itself is **not** deprecated, but `data_tests:` replaced it in dbt 1.8. The silver README
-  example now carries the current shape. · evidence: `transform/models/silver/README.md` ·
-  tag: `tooling-trap`
+- **2026-08-14** · `verified` · The bundled `.claude/skills/**/tests/*.mjs` guards are **not**
+  run by CI — no Node step exists — so they execute only when someone remembers. Guards that must
+  actually enforce belong under `tests/`. Relatedly, CI lints **`transform/models` only**, so
+  singular tests under `transform/tests` are never linted; run them by hand. · evidence:
+  `.github/workflows/ci.yml` · tag: `ci-behaviour`
+
+- **2026-08-14** · `measured` · dbt 1.12 warns on top-level generic-test args: nest them under
+  `arguments:`. `tests:` is not deprecated, but `data_tests:` replaced it in dbt 1.8. With
+  `+severity: error` a warn is a RED build. · evidence:
+  `transform/models/silver/README.md` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · DuckDB identifiers are case-insensitive **including struct
+  fields**, so `resultsets[1].rowset` resolves against `read_json_auto`'s camelCase columns.
+  Writing the envelope decode all-lowercase satisfies `.sqlfluff` with no quoting. Lists are
+  **1-indexed**. · evidence:
+  `transform/models/bronze/bronze__nba_stats__league_game_log_player.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **Never select `headers` alongside `unnest(rowset)`** — it
+  broadcasts a 32-element array onto every row (~2.3M strings over three seasons) and dies with
+  `Out of Memory` at 91s, after passing in 0.06s on trimmed fixtures. Resolve `list_position`
+  once per file, before the unnest, and carry the integers: 0.19s at full volume. · evidence:
+  `transform/tests/assert_bronze_row_count_matches_landed.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **A JSON element cast to VARCHAR keeps its quotes.**
+  `cast(v as varchar)` on a `JSON` value gives `'"0020300001"'` — width 12, not 10 — and passes
+  every uniqueness test while being wrong in every row. Use `->> '$'`. · evidence:
+  `transform/models/bronze/bronze__nba_stats__league_game_log_player.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · Three sqlfluff traps, all with green `dbt build` throughout — only
+  lint sees them. AL09 forbids a self-alias while `aliasing.column = explicit` demands `as` on a
+  genuine one. LT02 rejects a `{% for %}` loop generating select-list lines even when the compiled
+  output is perfect. And the duckdb dialect cannot parse a window function on the right of
+  `is distinct from` inside a `case when` — it reports an unparsable section plus a *phantom*
+  `ST03` naming the wrong CTE; hoist the `lag()` into its own CTE. · evidence:
+  `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `verified` · DuckDB `unpivot <cte> on a, b, c into name x value y` parses
+  cleanly under sqlfluff's duckdb dialect and works as a CTE body — the lintable way to compare
+  many measures without N union branches, and it keeps the measure name in the failure row. ·
+  evidence: `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **Make a fixture-backed test go red WITHOUT editing a fixture**:
+  copy `tests/fixtures/nba_stats` to a scratch dir, mutate the copy, then run `--target local`
+  with `NBA_LANDING_ROOT` pointed at it and `NBA_WAREHOUSE_PATH` at a scratch `.duckdb`. Same
+  evidence as an in-repo edit, and `tests/` stays in your deny set with no revert to get wrong. ·
+  evidence: `transform/models/bronze/sources.yml` · tag: `harness-behaviour`
+
+- **2026-08-15** · `measured` · **Uniqueness and `mutually_exclusive_ranges` are both blind to a
+  degenerate gaps-and-islands collapse.** Rebuilding the stint model as one row per player-season
+  left both schema tests PASSING; only a singular population floor went red. A range test proves
+  ranges do not overlap, never that the right NUMBER of ranges exists — always pair it with a
+  `> 0` floor on the population it models. · evidence:
+  `transform/tests/assert_stints_did_not_degenerate.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `LeagueGameLog.get_request()` sends **and then** parses, indexing
+  `resultSets['LeagueGameLog']` — a non-conforming body raises inside the call instead of being
+  returned, so this transport can never LAND an error response. Use
+  `NBAStatsHTTP().send_api_request`. · evidence: `src/nba_platform/client.py` · tag:
+  `tooling-trap`
+
+- **2026-08-15** · `measured` · Serialise **every** document before opening **any** handle. The
+  landing writer used to render its manifest inline at its own `open("xb")`, so an unserialisable
+  optional field landed a payload with no manifest — an aborted capture — instead of failing
+  clean. Any writer taking caller-supplied JSON wants this ordering. · evidence:
+  `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · A dry run that reports the PLAN reports the wrong number. The
+  skip-if-present check ran only in the real loop, so `--dry-run` printed 6 while a real run
+  against a populated `var/landing` made 0. Any "what will this cost" preview has to consult the
+  same skip the executor does, or it is only correct on an empty zone. · evidence:
+  `src/nba_platform/backfill.py` (`survey_plan`) · tag: `design-trap`
+
+- **2026-08-15** · `measured` · A dimension assembled from two relations wants a `left` join plus
+  `not_null`, never `inner`. `dim_player` takes its name from bronze and its date span from
+  `fact_player_game`; `inner` would silently DROP a player the two disagree about, `left` turns
+  the disagreement into nulls that a declared test reddens. · evidence:
+  `transform/models/silver/dim_player.sql` · tag: `dbt-pattern`
+
+- **2026-08-15** · `measured` · For a multi-model floor, left-join an expected-values CTE (a chain
+  of `select 'literal' as col union all ...`, which lints clean) against the `group by`. A branch
+  deleted from the union then reports zero rather than dropping silently out of the assertion —
+  the difference between a floor and a decoration. · evidence:
+  `transform/tests/assert_game_id_keeps_leading_zeros.sql` · tag: `dbt-pattern`
