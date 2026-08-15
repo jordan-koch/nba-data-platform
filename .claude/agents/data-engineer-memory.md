@@ -109,7 +109,7 @@ their place.
   alignment or length check. · evidence: `README.md` layout tree · tag: `tooling-trap`
 
 - **2026-08-14** · `measured` · dbt 1.12 warns on top-level generic-test args
-  (MissingArgumentsPropertyInGenericTestDeprecation): nest them under `arguments:`. The silver
-  grain worked example still shows the old shape, so copying it builds green but noisy. ·
-  evidence: `requests/feature-requests/data-engineer-agent/reviews/proving-run-b-2.md` · tag:
-  `tooling-trap`, `docs-candidate`
+  (MissingArgumentsPropertyInGenericTestDeprecation): nest them under `arguments:`. `tests:`
+  itself is **not** deprecated, but `data_tests:` replaced it in dbt 1.8. The silver README
+  example now carries the current shape. · evidence: `transform/models/silver/README.md` ·
+  tag: `tooling-trap`

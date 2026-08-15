@@ -75,11 +75,20 @@ produced** because they are evidence, and the main-thread records live in
 `proving-run-a-verification.md` and `proving-run-b.md`. This also keeps each handoff inside
 its 120-line cap, which appending verification would have broken.
 
-**Not fixed, deliberately.** Both drills independently flagged that
-`transform/models/silver/README.md`'s worked example uses the pre-dbt-1.10 test-argument
-shape, which builds green but emits a deprecation. It is a real defect, but that file is not
-in the plan's §7 checklist and is the dimensional-model contract. Left as a follow-up rather
-than absorbed silently.
+**Folded in at the user's direction, after being surfaced rather than absorbed silently.**
+Both drills independently flagged that `transform/models/silver/README.md`'s worked example
+used the pre-dbt-1.10 test-argument shape. That file is outside the plan's §7 checklist and
+is the dimensional-model contract, so it was raised as a follow-up rather than changed
+quietly; the user elected to fold it into this branch.
+
+Scoped by measurement rather than by the agents' recommendation. Reproducing the README's
+exact shape against the scratch project emitted **exactly one** deprecation —
+`MissingArgumentsPropertyInGenericTestDeprecation`, *"Found top-level arguments to test"* — so
+nesting under `arguments:` is the only **required** change. `tests:` produced no deprecation
+at all; switching it to `data_tests:` is future-proofing against the dbt 1.8 rename, not a
+fix. Both shapes were verified clean, with the uniqueness test still PASSing. The example now
+uses `data_tests:` + `arguments:` because it is what every future silver model is copied
+from, and the README states which of the two details is which.
 
 ## 4. Verification & edge cases
 
@@ -149,4 +158,3 @@ blockquotes, the track Index row, and this report. Then the push and the PR are 
   longer states them at all.
 - **`AREA_TO_SPEC` has no `agents` key**; the bucket-list workaround is a runtime argument
   someone must remember.
-- **The silver README's test-argument shape** predates dbt 1.10.

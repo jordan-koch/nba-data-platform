@@ -16,13 +16,20 @@ models:
     description: >-
       One row per player per game. A player traded mid-season appears under the team he
       played that game for — team affiliation resolves as-of the game date, not as-of today.
-    tests:
+    data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [game_id, player_id]
+          arguments:
+            combination_of_columns: [game_id, player_id]
 ```
 
 A grain claimed in prose but not proven by a test is a grain that will quietly break. The
 `/update-docs` skill checks these against each other.
+
+Two details in that block are load-bearing, because this example is what every silver model
+gets copied from. Generic-test arguments nest under **`arguments:`** — dbt 1.10 deprecated
+passing them at the top level, and a model copied from the older shape builds green but
+warns. The key is **`data_tests:`**, which replaced `tests:` in dbt 1.8; the old spelling
+still works today and is not what a new model should be written with.
 
 ## The hard parts, named
 
