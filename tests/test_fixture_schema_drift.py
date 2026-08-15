@@ -75,23 +75,26 @@ def _fixtures(grain: str) -> list[Path]:
     return sorted(CORPUS.glob(f"season=*/grain={grain}/season_type=*/capture=*/payload.json"))
 
 
-def test_every_declared_model_has_fixtures_to_check_it_against() -> None:
-    """A declared model with no fixture makes every check below pass on an empty loop.
+def test_declared_models_and_fixture_grains_cover_each_other() -> None:
+    """Both directions, because each gap is silent in its own way.
 
-    The inverse — a fixture grain with no declared model — is deliberately NOT asserted here.
-    Bronze lands one model per phase on purpose (the player grain first, so the first-ever
-    sqlfluff run and the source seam are absorbed on one file), so a team fixture with no team
-    model is the expected intermediate state rather than a defect. Phase 5 lands that model and
-    tightens this into a both-ways check.
+    A declared model with no fixture makes every check below pass on an empty loop. A fixture
+    grain with no declared model is worse: the fixture is committed, CI reads it, and nothing
+    asserts its columns are what bronze believes.
+
+    Bronze deliberately landed one model per phase — the player grain first, so the first-ever
+    sqlfluff run and the source seam were absorbed on one file — so this was a one-way check
+    until the team model landed alongside it.
     """
     declared = _declared()
     assert declared, "bronze declares no models - this whole module would pass vacuously"
 
-    for grain in declared:
-        assert _fixtures(grain), (
-            f"bronze declares a {grain}-grain model but no {grain} fixture exists, so its "
-            "column contract is checked against nothing"
-        )
+    with_fixtures = {grain for grain in EXPECTED_WIDTHS if _fixtures(grain)}
+    assert with_fixtures == set(declared), (
+        f"fixture grains {sorted(with_fixtures)} and declared models {sorted(declared)} do not "
+        "cover each other - a committed fixture whose columns nothing checks, or a model "
+        "checked against nothing"
+    )
 
 
 @pytest.mark.parametrize("grain", sorted(EXPECTED_WIDTHS))

@@ -1,29 +1,26 @@
--- Bronze: `leaguegamelog` at PLAYER grain, 1:1 with the landed payload.
+-- Bronze: `leaguegamelog` at TEAM grain, 1:1 with the landed payload.
 --
--- The endpoint answers with a column-store envelope: `resultSets[0].headers` holds the
--- column names and `resultSets[0].rowSet` holds one parallel array of values per row. A
--- tabular row only exists after that envelope is decoded, so the decode below is decoding
--- -- not business logic. No join, no filter, no rename beyond casing, no derived stat.
+-- Same column-store envelope as the player model, and the same four load-bearing details:
+-- DuckDB lists are ONE-indexed (`resultsets[1]`); values are unwrapped with `->> '$'` and
+-- never `cast(... as varchar)`, which would return the JSON *representation* and make
+-- `game_id` 12 characters of quoted text that passes every test while being wrong; columns
+-- are projected BY NAME through `list_position(headers, ...)` so a header reorder cannot
+-- silently swap two same-typed columns; and `game_id` stays VARCHAR because the ids are
+-- zero-padded.
 --
--- Four things here are load-bearing and quiet when wrong:
+-- 29 columns, measured identical across all three pilot seasons. This is the player list
+-- minus `PLAYER_ID`, `PLAYER_NAME` and `FANTASY_PTS` -- it is NOT a prefix of it, so the
+-- projection is written out rather than shared.
 --
---   * DuckDB lists are ONE-indexed. It is `resultsets[1]`, never `[0]`.
---   * `rowSet` elements arrive typed JSON, not VARCHAR. `cast(v as varchar)` returns the
---     JSON *representation* -- '"0020300001"', quotes included, width 12 -- which passes
---     every uniqueness and not-null test while being silently wrong. `v ->> '$'` unwraps
---     to '0020300001', width 10, and preserves a real null as a real null.
---   * Columns are projected BY NAME through `list_position(headers, ...)`, never by
---     ordinal. A positional projection would survive the endpoint reordering its headers
---     and would swap two same-typed columns without failing anything.
---   * `game_id` stays VARCHAR. stats.nba.com ids are zero-padded; any numeric inference
---     eats the leading zero while every downstream join still appears to work.
+-- WHY THIS MODEL EXISTS BEFORE ITS FACT DOES. The team-grain fact arrives in Phase 7, but
+-- this is the source of `dim_game`'s home/away and of `dim_team`, and it costs three extra
+-- API calls for the pilot seasons. Landing it now keeps the dimensional work unblocked.
 --
--- DEDUPLICATION: latest capture wins, on the natural key `(game_id, player_id)`. This is
--- the one transformation `models/bronze/README.md` permits beyond typing and casing, and it
--- is deliberately the only one -- no filtering, no joins, no semantic renaming. The pilot
--- corpus holds no duplicate capture at player grain (the restated partition is team grain),
--- so this is a no-op on today's fixtures by construction: the rule belongs on both models
--- because a restatement can arrive at either.
+-- DEDUPLICATION: latest capture wins, on the natural key `(game_id, team_id)`. This is the
+-- one transformation `models/bronze/README.md` permits beyond typing and casing, and it is
+-- deliberately the only one -- no filtering, no joins, no semantic renaming. It runs BEFORE
+-- the projection, on the raw cells, so the natural key is read out of the envelope exactly
+-- once and the 29 columns are written out exactly once.
 
 with landed as (
 
@@ -31,14 +28,14 @@ with landed as (
         resultsets[1].headers as headers,
         resultsets[1].rowset as row_set,
         capture as capture_stamp
-    from {{ source('nba_stats_landing', 'league_game_log_player') }}
+    from {{ source('nba_stats_landing', 'league_game_log_team') }}
 
 ),
 
 exploded as (
 
-    -- One row per rowSet element. `headers` rides along because the projection below
-    -- resolves every column against the header list of the capture it came from.
+    -- One row per rowSet element, across every capture of every partition. `headers` rides
+    -- along because each row is projected against the header list of its own capture.
     select
         headers,
         capture_stamp,
@@ -49,13 +46,15 @@ exploded as (
 
 ranked as (
 
-    -- A CTE rather than `qualify`: unambiguously lintable under the duckdb dialect. Ranking
-    -- on the raw cells, before the projection, keeps the natural key read out of the
-    -- envelope once and the 32 columns written out once.
+    -- A CTE rather than `qualify`: unambiguously lintable under the duckdb dialect.
     --
-    -- The `capture_stamp` tiebreak is currently a no-op and is kept deliberately -- see the
-    -- team model, which carries the full reasoning: `captured_at` is `strptime()` of this
-    -- very stamp, so determinism actually rests on the stamp being unique within a partition.
+    -- The `capture_stamp` tiebreak is currently a no-op and is kept deliberately. The stamp
+    -- is the landing path's `capture=` segment, `captured_at` is `strptime()` of that same
+    -- stamp, and the landing writer advances a colliding stamp by a second rather than
+    -- overwriting -- so within one partition the stamps are already distinct and already
+    -- sort chronologically as fixed-width text. Determinism rests on that uniqueness; the
+    -- second ordering term states the intent and costs nothing if `captured_at` ever stops
+    -- being derived from the stamp.
     select
         headers,
         capture_stamp,
@@ -63,7 +62,7 @@ ranked as (
         row_number() over (
             partition by
                 cells[list_position(headers, 'GAME_ID')] ->> '$',
-                cells[list_position(headers, 'PLAYER_ID')] ->> '$'
+                cells[list_position(headers, 'TEAM_ID')] ->> '$'
             order by
                 strptime(capture_stamp, '%Y%m%dT%H%M%SZ') desc,
                 capture_stamp desc
@@ -85,8 +84,6 @@ deduplicated as (
 
 select
     cells[list_position(headers, 'SEASON_ID')] ->> '$' as season_id,
-    cast(cells[list_position(headers, 'PLAYER_ID')] ->> '$' as bigint) as player_id,
-    cells[list_position(headers, 'PLAYER_NAME')] ->> '$' as player_name,
     cast(cells[list_position(headers, 'TEAM_ID')] ->> '$' as bigint) as team_id,
     cells[list_position(headers, 'TEAM_ABBREVIATION')] ->> '$' as team_abbreviation,
     cells[list_position(headers, 'TEAM_NAME')] ->> '$' as team_name,
@@ -114,7 +111,6 @@ select
     cast(cells[list_position(headers, 'PF')] ->> '$' as bigint) as pf,
     cast(cells[list_position(headers, 'PTS')] ->> '$' as bigint) as pts,
     cast(cells[list_position(headers, 'PLUS_MINUS')] ->> '$' as bigint) as plus_minus,
-    cast(cells[list_position(headers, 'FANTASY_PTS')] ->> '$' as double) as fantasy_pts,
     cast(cells[list_position(headers, 'VIDEO_AVAILABLE')] ->> '$' as bigint) as video_available,
     -- Recovered from the landing path, not from the payload: the capture segment is
     -- colon-free compact UTC because a colon is illegal in a Windows path.

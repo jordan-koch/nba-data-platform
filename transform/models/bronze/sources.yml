@@ -58,3 +58,22 @@ sources:
         meta:
           external_location: >-
             read_json_auto('{{ 'tests/fixtures' if target.name == 'ci' else env_var('NBA_LANDING_ROOT', 'var/landing') }}/nba_stats/league_game_log/season=*/grain=player/season_type=*/capture=*/payload.json', hive_partitioning = true)
+
+      - name: league_game_log_team
+        description: >-
+          Every capture of the `leaguegamelog` endpoint at TEAM grain (`PlayerOrTeam=T`),
+          one landed row per capture. Same column-store envelope as the player grain and
+          the same one-row-per-capture shape; the header list is 29 columns rather than 32
+          (no `PLAYER_ID`, `PLAYER_NAME` or `FANTASY_PTS`), which is why it is a separate
+          source table and a separate model rather than a filter over one relation.
+
+
+          THIS GRAIN IS WHERE TWO CAPTURES OF ONE PARTITION FIRST MEET. The committed
+          fixtures hold a second capture of `season=2003-04` -- a restatement, landed
+          later, of one game -- so the glob below unions eight rows for that partition and
+          the model's latest-capture-wins dedup is what reduces them. That is deliberate:
+          box scores get restated after the fact, and a rule with no fixture behind it is
+          a rule nobody has run.
+        meta:
+          external_location: >-
+            read_json_auto('{{ 'tests/fixtures' if target.name == 'ci' else env_var('NBA_LANDING_ROOT', 'var/landing') }}/nba_stats/league_game_log/season=*/grain=team/season_type=*/capture=*/payload.json', hive_partitioning = true)
