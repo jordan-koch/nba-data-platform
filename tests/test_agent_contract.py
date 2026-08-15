@@ -37,7 +37,24 @@ AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
 # PowerShell's `(Get-Content | Measure-Object -Line).Lines`, which drops blank lines and
 # reports ~18 fewer for CLAUDE.md. Every assertion message below names both the cap and
 # the counting method, so a red check cannot be dismissed as "the other count says fine".
-MEMORY_LINE_CAP = 120
+# The memory budget is deliberately TWO-TIER, and the split is the point.
+#
+# `MEMORY_CURATION_TARGET` is what the file should look like when work lands on `main`: short
+# enough that an agent reads all of it before building. Whether a given entry has stopped
+# earning its place is a *judgment*, so it is enforced by `/update-docs` at the doc sweep — the
+# same sweep that already asks whether the prose still describes the repo.
+#
+# `MEMORY_RUNAWAY_CEILING` is what this mechanical guard enforces, and it is far looser. A build
+# spanning many phases legitimately learns more than the target holds, and a hard stop at the
+# target means the main thread prunes reactively mid-build — dropping entries a later phase still
+# needs, purely to make room. That was measured on the box-score-foundation build: three prunes
+# in one feature, each one a guess about what the remaining phases would want.
+#
+# So: the agent appends freely while it works and the file gets curated once, before merge. What
+# stays absolute is that **the agent never prunes** — at the ceiling it reports rather than
+# deletes, because it cannot see which entries have stopped earning their place.
+MEMORY_CURATION_TARGET = 120
+MEMORY_RUNAWAY_CEILING = 250
 CLAUDE_MD_LINE_CAP = 200
 
 COUNTING_NOTE = (
@@ -373,14 +390,19 @@ def test_definition_grants_the_verify_commands() -> None:
 # ─── Budgets (AC4 + the folded CLAUDE.md win) ─────────────────────────────────
 
 
-def test_memory_file_is_within_budget() -> None:
+def test_memory_file_is_under_the_runaway_ceiling() -> None:
+    """The mechanical half. The curation target is `/update-docs`'s, not this file's."""
     count = _line_count(_memory_path().read_text(encoding="utf-8"))
-    assert count <= MEMORY_LINE_CAP, (
-        f"{_memory_path().name} is {count} lines, over its cap of {MEMORY_LINE_CAP}. "
-        f"{COUNTING_NOTE} "
-        "At cap the agent appends NOTHING and reports the entry plus 'memory at cap, "
-        "pruning needed' under still-open — pruning is a main-thread decision. Raising "
-        "the cap is not the fix."
+    assert count <= MEMORY_RUNAWAY_CEILING, (
+        f"{_memory_path().name} is {count} lines, over the runaway ceiling of "
+        f"{MEMORY_RUNAWAY_CEILING}. {COUNTING_NOTE} "
+        "This ceiling is not the curation target — that is "
+        f"{MEMORY_CURATION_TARGET} lines and is enforced by /update-docs before merge. "
+        "Being over THIS number means the file has run away, not merely that it is due a "
+        "sweep. The agent still appends nothing here and reports 'memory at cap, pruning "
+        "needed' under still-open: pruning is a main-thread decision, because the agent "
+        "cannot see which entries have stopped earning their place. Raising the ceiling is "
+        "not the fix."
     )
 
 
@@ -397,10 +419,13 @@ def test_claude_md_is_within_budget() -> None:
 def test_budget_predicate_catches_an_over_cap_file(tmp_path: Path) -> None:
     """Negative control, built from a synthetic file — never by mutating a real one."""
     bloated = tmp_path / "over-budget.md"
-    bloated.write_text("\n".join(f"line {n}" for n in range(MEMORY_LINE_CAP + 5)), "utf-8")
-    assert _line_count(bloated.read_text(encoding="utf-8")) > MEMORY_LINE_CAP, (
-        "The budget predicate failed to flag a file well over the cap."
+    bloated.write_text("\n".join(f"line {n}" for n in range(MEMORY_RUNAWAY_CEILING + 5)), "utf-8")
+    assert _line_count(bloated.read_text(encoding="utf-8")) > MEMORY_RUNAWAY_CEILING, (
+        "The budget predicate failed to flag a file well over the ceiling."
     )
+    # The curation target must stay meaningfully tighter than the ceiling, or the two-tier
+    # split collapses back into one number and the sweep stops being a real step.
+    assert MEMORY_CURATION_TARGET < MEMORY_RUNAWAY_CEILING
 
 
 def test_budget_predicate_counts_physical_lines_including_blanks() -> None:

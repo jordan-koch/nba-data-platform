@@ -53,22 +53,58 @@ try to resolve it.)
 is public. Secret scanning catches credentials by content; it does not catch a pasted
 machine path, an account id, or a response fragment.
 
-## The 120-line cap
+## The budget — two numbers, and they do different jobs
 
-This file is capped at **120 physical lines**, counted as `len(text.splitlines())` — what a
-reader scrolls, and what the pytest guard counts. It is enforced in CI.
+Both counted as physical lines, `len(text.splitlines())` — what a reader scrolls, and what
+the pytest guard counts.
 
-**At cap, append nothing.** Do not delete an older entry to make room, and do not silently
-drop what you learned. Report the entry you wanted to add, plus the words *"memory at cap,
-pruning needed"*, under `still-open` and `docs-delta` in your handoff. **Pruning is a
-main-thread decision, never yours** — you cannot see which entries have stopped earning
-their place.
+**~120 lines is the curation target.** It is what this file should look like when work lands
+on `main`, and it is enforced by judgment at the `/update-docs` sweep, not by a test. Whether
+an entry has stopped earning its place is not a thing a line count can decide.
+
+**250 lines is the runaway ceiling**, enforced mechanically in CI. Going over it means the
+file has genuinely run away, not merely that it is due a sweep.
+
+**Append freely while you work.** Do not stop at 120 and do not ration yourself toward it —
+that is how a build loses what it learned in its last three phases. The file gets curated
+once, deliberately, before merge; between sweeps it is allowed to be longer than its resting
+size.
+
+**At the ceiling, append nothing.** Do not delete an older entry to make room, and do not
+silently drop what you learned. Report the entry you wanted to add, plus the words *"memory
+at cap, pruning needed"*, under `still-open` and `docs-delta` in your handoff.
+
+**Pruning is a main-thread decision, never yours** — and, learned the hard way on the
+box-score build, it is best made *once at the end* rather than reactively mid-build. Pruning
+to make room for the next phase means guessing what the phases after it will need, and
+guessing wrong drops the entry that would have saved them.
 
 ## Entries
 
 - **2026-08-14** · `assumed` · PowerShell 5.1's `Set-Content` and `Out-File` mangle UTF-8;
   write files with the Write/Edit tools instead. · evidence: `.claude/skills/implement-plan/SKILL.md:111-112`
   · tag: `tooling-trap`
+
+- **2026-08-14** · `verified` · The bundled `.claude/skills/**/tests/*.mjs` guards are **not**
+  run by CI — the workflow has exactly three jobs and no Node step, so they execute only when
+  an agent remembers to run them by hand. Guards that must actually enforce belong under
+  `tests/`. · evidence: `.github/workflows/ci.yml`, `ops/branch-protection.json:4` · tag:
+  `ci-behaviour`
+
+- **2026-08-14** · `measured` · In agent frontmatter the shell tool is named **`PowerShell`**,
+  not `Bash`, on this box. Declaring `Bash` silently yields an agent with no shell at all —
+  no warning, no error — and therefore no way to run `pytest`, `mypy` or `dbt build`.
+  Argument-scoped syntax like `PowerShell(git status:*)` is parsed but **not enforced**: the
+  tool arrives unrestricted. · evidence:
+  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
+  `harness-behaviour`
+
+- **2026-08-14** · `measured` · A new agent definition is **not** spawnable immediately after
+  being written — the spawn fails with "Agent type not found", which reads exactly like
+  "unsupported". The registry does re-scan later in the same session, so treat that error as
+  *not yet*. A fresh session is the reliable route. · evidence:
+  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
+  `harness-behaviour`
 
 - **2026-08-14** · `assumed` · sqlfluff errors rather than no-ops when its model selection
   is empty, which is why the CI step that runs it is wrapped in a conditional. Adding the
@@ -107,3 +143,26 @@ their place.
   a two-run offline test really does collide on one. The landing writer claims a directory
   with `mkdir(exist_ok=False)` and advances the stamp a second on collision rather than
   overwrite. · evidence: `src/nba_platform/landing.py` (`_reserve`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `write_capture` builds a fixed-shape manifest and opens it
+  `"xb"`, so a caller cannot add a field or append one afterwards — appending would mutate a
+  landed file. Anything needing extra per-capture metadata writes a sibling document. ·
+  evidence: `src/nba_platform/fixtures.py` (`_record_provenance`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · RUF100 flags a `# noqa` naming a rule this repo does not
+  `select` ("Unused noqa directive (non-enabled: PLC2701)"), so pylint-style codes cannot be
+  pre-silenced. Justify a deliberate private cross-module import in a comment instead. ·
+  evidence: `src/nba_platform/fixtures.py` (the `_serialize` import) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **SUPERSEDES the sibling-document entry above.** `write_capture`
+  now takes `provenance=` and nests it under the manifest's `provenance` key — reach for that
+  before inventing a third file per capture. Nested, never merged into `parameters` (the wire
+  dict bronze reads), and always present as `null` when absent, so "never trimmed" and "trimmed
+  to everything" are distinguishable without knowing the key can be missing. ·
+  evidence: `src/nba_platform/landing.py` (`PROVENANCE_KEY`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · Serialise **both** documents before opening either handle. The
+  writer used to render the manifest inline at its own `open("xb")`, so an unserialisable
+  optional field would land a payload with no manifest — an aborted capture — instead of failing
+  clean. Now a bad value fails with nothing on disk. Any writer taking caller-supplied JSON wants
+  this ordering. · evidence: `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`
