@@ -45,7 +45,11 @@ git diff HEAD
 ```
 
 Read the real diff, not the commit message's summary of it. Bucket it: `transform` · `src` ·
-`tests` · `skills` · `infra` · `ci` · `config` · `orchestration` · `docs` · `requests`.
+`tests` · `skills` · `agents` (`.claude/agents/`) · `infra` · `ci` · `config` · `orchestration` ·
+`docs` · `requests`.
+
+If the diff touches `agents`, **also pass `skills`** wherever a bucket list feeds the acceptance
+panel — `AREA_TO_SPEC` has no `agents` key and silently resolves it to zero specialists.
 
 The bucket list drives which checks below are load-bearing. A docs-only change doesn't need the
 grain audit; a new silver model needs it most.
@@ -70,12 +74,26 @@ Work through these against the diff. Each is a question a machine can't answer.
   roadmap in README carrying *what will be*.
 - **The rules.** Did this change establish, alter, or break a convention the rules section states?
   A new convention that lives only in a PR description is a convention that will be violated next
-  week.
+  week. **The granular build rulebook no longer lives here** — it was relocated to
+  [`.claude/agents/data-engineer.md`](../../agents/data-engineer.md), which is its single owner, and
+  `CLAUDE.md` keeps a pointer naming what moved. So audit *both*: does the pointer still name the
+  rules that are actually in the definition, and did this change alter a rule in the definition
+  without the pointer noticing?
+- **The agent's memory file.** `.claude/agents/data-engineer-memory.md` is committed, published, and
+  agent-appended. Eyeball it: is it within budget, and does it contain any claim that belongs in
+  `docs/data-sources.md` instead? A data fact recorded there is the drift this gate exists to
+  prevent, routed around through a file the gate does not otherwise read. The mechanical half of
+  both checks lives in `tests/test_agent_contract.py`; this is the judgment half.
 - **Constraints & Gotchas.** Did this change discover a new trap, or retire an existing one? This
   section is the repo's scar tissue — it should grow when something bites.
-- **The line budget.** `CLAUDE.md` stays **under 200 lines**. Check it:
-  `(Get-Content CLAUDE.md | Measure-Object -Line).Lines`. Over budget means cutting, not
-  reformatting — the file is a map, and a map that takes an hour to read is not a map.
+- **The line budget.** `CLAUDE.md` stays **under 200 physical lines**, and
+  `.claude/agents/data-engineer-memory.md` at or under **120**. Both are enforced mechanically by
+  `tests/test_agent_contract.py`, **which is the authority** — it counts *physical* lines
+  (`len(text.splitlines())`), so blank lines count. Do **not** check with
+  `(Get-Content CLAUDE.md | Measure-Object -Line).Lines`: that drops blank lines and reports ~18
+  fewer, and two checks of one budget disagreeing is how a real red check gets waved through as
+  broken. If you want a local count, use `(Get-Content CLAUDE.md).Count`. Over budget means
+  cutting, not reformatting — the file is a map, and a map that takes an hour to read is not a map.
 
 ### README.md — is it still true?
 

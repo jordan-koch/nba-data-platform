@@ -126,10 +126,16 @@ ran `git checkout` and silently wiped uncommitted work while a vacuous selftest 
 
 **Bucket the diff into touched areas**: from `git status --porcelain` +
 `git diff HEAD --stat`, note which of `transform` (dbt models/tests/macros) · `src` (extraction and
-landing) · `tests` · `skills` (`.claude/skills/`) · `infra` (Terraform) · `ci` (`.github/workflows/`) ·
-`config` (`pyproject.toml`, `dbt_project.yml`, `profiles.yml`) · `orchestration` · `docs` the change
-touches. This list drives which **specialist reviewers** the panel spins up — show the user the roster
-before launching.
+landing) · `tests` · `skills` (`.claude/skills/`) · `agents` (`.claude/agents/`) · `infra` (Terraform) ·
+`ci` (`.github/workflows/`) · `config` (`pyproject.toml`, `dbt_project.yml`, `profiles.yml`) ·
+`orchestration` · `docs` the change touches. This list drives which **specialist reviewers** the panel
+spins up — show the user the roster before launching.
+
+**`agents` draws no specialist of its own — so also pass `skills`.** Verified: `AREA_TO_SPEC` in
+`acceptance_panel.js` has no `agents` key, and it resolves an unknown area to `[]` **silently, with no
+warning**. Passing `agents` alone is therefore *worse* than passing nothing, because it reads like
+coverage while spinning up zero specialists. Pass both, and the `skill-quality` lens runs — every clause
+of its mandate applies verbatim to an agent definition.
 
 Then run the bundled panel by **absolute** path (resolve repo-root + the segment):
 
