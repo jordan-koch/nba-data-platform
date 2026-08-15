@@ -45,3 +45,4 @@ section should be uncomfortable to write.
 | [0005](0005-browser-side-serving.md) | Serve gold marts to the browser via DuckDB-WASM | accepted |
 | [0006](0006-public-repository.md) | Public repository from the first commit | accepted |
 | [0007](0007-write-capable-implementation-subagent.md) | A write-capable implementation subagent | accepted |
+| [0008](0008-landing-layout-and-capture-manifest.md) | Landing layout, capture manifest, latest-capture-wins | accepted |

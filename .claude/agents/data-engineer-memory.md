@@ -70,12 +70,6 @@ their place.
   write files with the Write/Edit tools instead. · evidence: `.claude/skills/implement-plan/SKILL.md:111-112`
   · tag: `tooling-trap`
 
-- **2026-08-14** · `verified` · The bundled `.claude/skills/**/tests/*.mjs` guards are **not**
-  run by CI — the workflow has exactly three jobs and no Node step, so they execute only when
-  an agent remembers to run them by hand. Guards that must actually enforce belong under
-  `tests/`. · evidence: `.github/workflows/ci.yml`, `ops/branch-protection.json:4` · tag:
-  `ci-behaviour`
-
 - **2026-08-14** · `assumed` · sqlfluff errors rather than no-ops when its model selection
   is empty, which is why the CI step that runs it is wrapped in a conditional. Adding the
   repo's first `.sql` file flips that step from skipped to running. · evidence:
@@ -98,3 +92,18 @@ their place.
   itself is **not** deprecated, but `data_tests:` replaced it in dbt 1.8. The silver README
   example now carries the current shape. · evidence: `transform/models/silver/README.md` ·
   tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · nba_api 1.11.4 keeps the HTTP status on the private
+  `NBAResponse._status_code`; the public surface is only get_response/get_dict/get_json/
+  valid_json/get_url. Anything wanting the status reads that name defensively or gets None.
+  · evidence: `src/nba_platform/client.py` (`STATUS_CODE_ATTRIBUTE`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `LeagueGameLog.get_request()` sends **and then** runs
+  `load_response()`, which indexes `resultSets['LeagueGameLog']` — so a non-conforming body
+  raises inside the call instead of being returned. Landing one needs the lower-level
+  `NBAStatsHTTP().send_api_request`. · evidence: `src/nba_platform/client.py` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · Colon-free compact-UTC stamps are one-second resolution, and
+  a two-run offline test really does collide on one. The landing writer claims a directory
+  with `mkdir(exist_ok=False)` and advances the stamp a second on collision rather than
+  overwrite. · evidence: `src/nba_platform/landing.py` (`_reserve`) · tag: `tooling-trap`
