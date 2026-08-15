@@ -2,7 +2,9 @@
 name: update-docs
 description: >-
   Bring the project's documentation back into agreement with the repo that now exists — the
-  judgment half of the commit gate, called by /commit or run on its own. Checks that CLAUDE.md's map and
+  judgment half of the commit gate, called by /commit or run on its own. Owns the ONLY curation of
+  the data-engineer memory file, whose ~120-line target is enforced here by judgment and not by any
+  test. Checks that CLAUDE.md's map and
   rules still describe reality, that README.md's status/roadmap/setup are still true, that no
   accepted ADR was silently invalidated, that docs/data-sources.md's epistemic labels reflect what
   has actually been verified, that every silver model's documented grain matches a test that proves

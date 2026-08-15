@@ -281,6 +281,19 @@ models:
       single answer once a player has two spellings, so a 2003-04 row can render under a later
       one, and the spelling as observed on any given game stays recoverable from
       `bronze__nba_stats__league_game_log_player`.
+
+
+      COVERAGE IS PLAYERS WHO APPEARED IN A BOX SCORE, AND THE MODEL'S NAME OVERCLAIMS THAT. A row
+      exists here only because the player was observed playing in a landed game. A player who was
+      under contract all season and never got off the bench is ABSENT ENTIRELY -- there is no row
+      with null measures, there is no row -- and so is anyone whose only appearances fall in a
+      season this slice has not landed. Roster supplementation from `commonteamroster` is a
+      declared non-goal, so the limit is documented rather than filled: read this dimension as
+      "players this corpus has seen play", never as "NBA players".
+
+
+      IDENTITY ONLY. No height, weight, position, draft year or college -- those are not on a box
+      score, they live on `commonplayerinfo`, and they are out of scope for this slice.
     columns:
       - name: player_id
         description: >-
@@ -293,6 +306,24 @@ models:
           Display name AS OF THE MOST RECENT GAME OBSERVED. Never a join key -- three players in
           the pilot corpus alone are spelled two ways, so a name join loses rows in a way an id
           join cannot.
+        data_tests:
+          - not_null
+      - name: first_observed_game_date
+        description: >-
+          Earliest game date on which this player APPEARS IN A LANDED BOX SCORE -- the minimum
+          `dim_game.game_date` over his `fact_player_game` rows. THIS IS NOT A DEBUT DATE. It is
+          bounded by what has been extracted, so for a player whose career began before 2003-04 it
+          is simply the first pilot game he played in, and it moves earlier the moment another
+          season is landed.
+        data_tests:
+          - not_null
+      - name: last_observed_game_date
+        description: >-
+          Latest game date on which this player appears in a landed box score. NOT A RETIREMENT
+          DATE, and never subtract it from `first_observed_game_date` to get a career length: the
+          pilot lands 2003-04, 2019-20 and 2024-25 only, so player 2544 spans 2003-10-29 to
+          2025-04-11 with two decades of unlanded seasons inside the interval. Always greater than
+          or equal to `first_observed_game_date`.
         data_tests:
           - not_null
 

@@ -79,6 +79,11 @@ yet — see the roadmap in [`README.md`](README.md).
   state. Bubble a destructive-git *need* back up. **Editing a tracked file is not a git
   operation**, so a write-capable builder with a declared write allowlist sits inside this
   rule rather than being an exception to it — see [`.claude/agents/`](.claude/agents/README.md).
+- **The agent memory file has a two-tier budget.** `.claude/agents/data-engineer-memory.md` carries
+  a **~120-line curation target** enforced by judgment at `/update-docs` before merge, and a
+  **250-line runaway ceiling** enforced mechanically in CI. Agents append freely while they work
+  and **never prune** — pruning mid-build means predicting which entries later phases will need,
+  and guessing wrong drops the one that would have saved them.
 - **Label your epistemics.** *Measured*, *verified*, *inferred*, *assumed*, *unconfirmed* mean
   different things. An unconfirmed claim about an endpoint's shape is a task, not a fact. This
   matters more than usual here because most of this repo is written by agents against docs

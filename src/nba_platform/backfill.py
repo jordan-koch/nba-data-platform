@@ -14,6 +14,16 @@ manifest recording what it actually cost — call count, elapsed seconds, observ
 between issued requests, and rows per call — so the estimate can be audited against the
 measurement rather than believed.
 
+**The dry run reports what a real run WOULD DO, not what the plan contains.** Those two
+numbers differ the moment anything has already been landed, because the real run skips a
+partition it already holds *before* issuing the request. A dry run that reported only the
+plan size would overstate the cost of every resumed backfill — printing 6 against a real
+run's 0 on a fully-landed zone — which is a divergence in the one number the cost guardrail
+exists to make checkable. So `--dry-run` consults the SAME skip-if-present check the loop
+uses (`survey_plan`) and prints `planned calls`, `already landed` and `requests to issue`
+side by side. It stays a *dry* run: `existing_capture_result` only reads directory entries,
+so still zero requests and still zero bytes written.
+
 **Re-running is safe and cheap.** A completed capture of a partition is detected *before*
 the request is issued, so resuming a half-finished backfill costs nothing at the API. That
 skip-if-present check is this project's whole checkpoint mechanism at six calls per pilot
@@ -74,12 +84,14 @@ __all__ = [
     "BackfillPlan",
     "BackfillResult",
     "GameLogFetcher",
+    "PlanSurvey",
     "PlannedCall",
     "build_parser",
     "build_plan",
     "main",
     "plan_calls",
     "run",
+    "survey_plan",
     "utc_now",
 ]
 
@@ -152,6 +164,62 @@ class BackfillPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanSurvey:
+    """The plan split by what the landing zone already holds, read before anything is issued.
+
+    This is the dry run's whole answer to "what will this actually cost". `plan.call_count`
+    is what was ASKED FOR; `request_count` is what a real run would ISSUE, and the gap
+    between them is the resumed-backfill case. Assert on `request_count`, never on
+    `plan.call_count`, when comparing a dry run against a subsequent real run.
+    """
+
+    plan: BackfillPlan
+    landed: tuple[PlannedCall, ...]
+    to_issue: tuple[PlannedCall, ...]
+
+    @property
+    def landed_count(self) -> int:
+        return len(self.landed)
+
+    @property
+    def request_count(self) -> int:
+        return len(self.to_issue)
+
+    @property
+    def estimated_pacing_seconds(self) -> float:
+        """The pacing floor for the requests that would ACTUALLY be issued.
+
+        Same arithmetic as `BackfillPlan.estimated_pacing_seconds` over a different count —
+        a skipped partition waits for nothing because no request follows it.
+        """
+        return max(self.request_count - 1, 0) * self.plan.request_delay_seconds
+
+
+def survey_plan(plan: BackfillPlan) -> PlanSurvey:
+    """Ask the landing zone which of `plan`'s calls a real run would actually issue.
+
+    Calls `existing_capture_result` — the SAME check `run()`'s loop makes before every
+    request, so the dry run cannot answer this question differently from the run it is
+    predicting. Read-only: it lists directory entries and opens nothing.
+
+    Under `--recapture` the loop skips the check entirely and issues every call, so this
+    reports the same thing: nothing landed, everything to issue.
+    """
+    if plan.recapture:
+        return PlanSurvey(plan=plan, landed=(), to_issue=plan.calls)
+
+    landed: list[PlannedCall] = []
+    to_issue: list[PlannedCall] = []
+    for call in plan.calls:
+        already = existing_capture_result(call.partition, landing_root=plan.landing_root)
+        if already is None:
+            to_issue.append(call)
+        else:
+            landed.append(call)
+    return PlanSurvey(plan=plan, landed=tuple(landed), to_issue=tuple(to_issue))
+
+
+@dataclass(frozen=True, slots=True)
 class BackfillResult:
     """What a run did, in the shape a test can assert against without parsing stdout."""
 
@@ -165,6 +233,10 @@ class BackfillResult:
     spacing_seconds: tuple[float, ...] = ()
     run_manifest_path: Path | None = None
     error: str | None = None
+    # Present on a DRY RUN only, where it is the whole point: `survey.request_count` is the
+    # number a subsequent real run's `calls_made` must equal. A real run leaves it None and
+    # reports what it measured instead of what it predicted.
+    survey: PlanSurvey | None = None
 
     @property
     def exit_code(self) -> int:
@@ -285,13 +357,30 @@ def _emit(stream: TextIO, line: str) -> None:
     print(line, file=stream)
 
 
-def _print_plan(plan: BackfillPlan, *, dry_run: bool, stream: TextIO) -> None:
+def _print_plan(
+    plan: BackfillPlan, *, dry_run: bool, stream: TextIO, survey: PlanSurvey | None = None
+) -> None:
+    """Print the plan, and — when a survey is supplied — what it would actually cost.
+
+    `planned calls:` is emitted unchanged whether or not a survey is present: it is the plan
+    size, it is what the run was asked for, and it is parsed by name elsewhere. The survey's
+    lines are ADDED beside it rather than replacing it, because the difference between the
+    two numbers is the information, not a correction to be hidden.
+    """
     _emit(stream, "backfill plan (dry run - no requests issued)" if dry_run else "backfill plan")
     _emit(stream, f"landing root: {plan.landing_root}")
     _emit(stream, f"seasons: {', '.join(plan.seasons)}")
     _emit(stream, f"grains: {', '.join(plan.grains)}")
     _emit(stream, f"season type: {plan.season_type}")
     _emit(stream, f"planned calls: {plan.call_count}")
+    if survey is not None:
+        note = (
+            "(--recapture ignores existing captures)"
+            if plan.recapture
+            else "(would be skipped without a request)"
+        )
+        _emit(stream, f"already landed: {survey.landed_count} {note}")
+        _emit(stream, f"requests to issue: {survey.request_count}")
     _emit(stream, f"request delay seconds: {plan.request_delay_seconds}")
     _emit(stream, f"max retries: {plan.max_retries}")
     _emit(
@@ -299,9 +388,17 @@ def _print_plan(plan: BackfillPlan, *, dry_run: bool, stream: TextIO) -> None:
         f"estimated pacing seconds: {plan.estimated_pacing_seconds:.1f}"
         " (pacing floor only, excludes server response time)",
     )
+    if survey is not None:
+        _emit(
+            stream,
+            "estimated pacing seconds for requests to issue: "
+            f"{survey.estimated_pacing_seconds:.1f} (the floor a real run would actually pay)",
+        )
     _emit(stream, f"recapture: {plan.recapture}")
+    landed_labels = frozenset() if survey is None else frozenset(c.label for c in survey.landed)
     for index, call in enumerate(plan.calls, start=1):
-        _emit(stream, f"  {index}. {call.label}")
+        marker = " [already landed]" if call.label in landed_labels else ""
+        _emit(stream, f"  {index}. {call.label}{marker}")
 
 
 @dataclass(slots=True)
@@ -345,12 +442,14 @@ def run(
         season_type=args.season_type,
         recapture=args.recapture,
     )
-    _print_plan(plan, dry_run=args.dry_run, stream=out)
-
     if args.dry_run:
         # The client is constructed inside the branch not taken, so a dry run cannot issue
-        # a request even by accident.
-        return BackfillResult(plan=plan, dry_run=True)
+        # a request even by accident. The survey reads the landing zone and nothing else.
+        survey = survey_plan(plan)
+        _print_plan(plan, dry_run=True, stream=out, survey=survey)
+        return BackfillResult(plan=plan, dry_run=True, skipped=survey.landed_count, survey=survey)
+
+    _print_plan(plan, dry_run=False, stream=out)
 
     fetcher: GameLogFetcher = GameLogClient(environ=environ) if client is None else client
     tally = _RunTally()

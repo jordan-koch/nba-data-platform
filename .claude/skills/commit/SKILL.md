@@ -90,6 +90,10 @@ the docs describe:
 - anything contradicting an accepted ADR
 - a source claim that moved from `unconfirmed` to `verified` (`docs/data-sources.md`)
 - a request artifact whose status advanced (the track Index rows)
+- **any change to `.claude/agents/data-engineer-memory.md`** — its ~120-line curation target is
+  enforced by `/update-docs`'s judgment and by nothing else. The mechanical guard only catches a
+  runaway at 250, so without this trigger the file grows a hundred lines past its target with
+  every check green. Measured: it reached 249 during one feature.
 
 **Otherwise, do the two-minute version yourself:**
 

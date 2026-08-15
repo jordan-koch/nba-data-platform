@@ -32,7 +32,7 @@ Every row was verified by **running** it, not by asserting it. Commands are as C
 | 11 | `assert_stints_did_not_degenerate` | **met** | 209 multi-stint player-seasons (68/60/81); proven able to fail |
 | 12 | `assert_every_game_has_exactly_two_teams` | **met (amended)** | 3,473 games one-home-one-away; 5 neutral-site games asserted positively. See §3 |
 | 13 | Bronze row count matches landed | **met** | Green at full volume in 0.19s |
-| 14 | `game_id` keeps leading zeros | **met** | Width exactly 10 in every row of all six payloads |
+| 14 | `game_id` keeps leading zeros **in bronze and silver** | **met** | Was partial — the guard covered only the two bronze models. Now covers `dim_game`, `fact_player_game`, `fact_team_game` too; de-zeroing flags 72,593 rows, a `BIGINT` cast flags 3,478 on type alone |
 | 15 | Latest-capture-wins | **met** | 58 column values compared across 2 recaptured keys; ascending flip → FAIL 3 |
 | 16 | Offline landing-immutability pytest | **met** | `tests/test_landing_immutability.py`, 6 tests |
 | 17 | Offline pacing/backoff pytest | **met** | `tests/test_client_pacing.py`, 9 tests, stubbed clock |
@@ -46,7 +46,7 @@ Every row was verified by **running** it, not by asserting it. Commands are as C
 | 25 | ADR for landing layout + manifest + dedup | **met** | ADR 0008, five sections, Index row |
 | 26 | Bookkeeping | **met** | `grep 'No pipeline code yet'` returns nothing; Index row `implemented`; all status blockquotes advanced |
 | 27 | `pytest -m network` prints measured figures | **met** | 2 passed; 6 calls, 3.36s, observed spacing `[0.86, 0.59, 0.59, 0.59, 0.61]`, full ordered column lists |
-| 28 | Dry-run count equals the real run's | **met** | Offline: identical plan objects. Live: printed 6, observed 6 |
+| 28 | Dry-run count equals the real run's | **met** | Was partial — the equality held only on an *empty* landing zone, and the zone is empty exactly once. The dry run is now skip-aware (`planned calls: 6 / already landed: 6 / requests to issue: 0`), asserted on a partially-landed zone, a fully-landed one, and under `--recapture` |
 | 29 | Pilot backfill + `--target local` green | **met** | 6 calls / 6.06s; `--target local` `PASS=66`; re-run made **0 calls** and left all 13 files byte-identical |
 | 30 | CI green on the PR, three required contexts | **outstanding — yours** | Requires the branch pushed and a PR opened. See §6 |
 
@@ -164,6 +164,46 @@ three non-adjacent seasons; 20 zero-length stints; players returning to a former
 DNP rows carrying `MIN = 0`; `FG_PCT` genuinely null for players who took no shots; and a
 deliberately restated capture.
 
+## 4a. The acceptance panel
+
+An adversarial acceptance panel ran over the finished branch and returned **fix**, not go. It ran
+at full strength — **8/8 reviewers, 5/5 verifiers, meta-audit ok, 0 findings unverified, no
+degraded lenses** — and graded 59 criteria: 49 met, 5 partial, 2 unmet, 3 not agent-verifiable.
+**32 confirmed findings, 0 blockers, 9 majors.** All eleven blocker/major candidates went to
+independent verification and **all eleven came back confirmed**; none was refuted.
+
+It was right about things I was wrong about. Four are fixed here.
+
+**The fixture corpus had no franchise drift, and that was my error.** I chose fixture games by
+"first N" without checking which franchises they contained. Result: 17 `(team_id, team_name)` pairs
+over 17 team_ids, zero drift, Seattle/OKC absent entirely — so under `--target ci`, the only
+automatic gate, `dim_team`'s as-of-latest resolution was **indistinguishable from the naive
+`select distinct` its own header calls the wrong model**. Plan Phase 7's acceptance named this
+explicitly and it was unmet. Fixed by adding four games that each carry a drifting franchise on
+*both* sides: 22 pairs over 18 team_ids, all four drifters under both names, and `dim_team`
+demonstrably resolving each to its later name from fixtures alone. A new guard,
+`test_the_corpus_exercises_cross_season_franchise_drift`, makes the loss impossible to repeat — and
+it has a real failure proof rather than a synthetic one, since the previous corpus would have
+failed it.
+
+**`dim_player` shipped without a Core scope deliverable, undisclosed.** Both of R8's named
+mitigations were missing — no first/last observed dates, and the "players who APPEARED" caveat was
+on `fact_player_game` instead of on `dim_player` — and neither was recorded as a deviation, which
+made it an omission rather than a trade-off. Now `first_observed_game_date` and
+`last_observed_game_date` are present and `not_null`-tested (LeBron: 2003-10-29 to 2025-04-11), and
+the caveat is confirmed on the DuckDB relation comment.
+
+**Binding correction SEQ-01 had a second half I never executed.** Phase 4 was to re-point the live
+contract test at `bronze/schema.yml`; it never happened, and the test's own docstring still promised
+it. Now the live test reads the YAML, closing the loop with the offline drift guard — live matches
+YAML, YAML matches fixtures — with a parse guard so an empty or reordered read cannot pass vacuously.
+
+**Three governance findings were failures in my own mid-build change.** Making `/update-docs` the
+sole owner of memory curation was pointless while its frontmatter never mentioned the duty,
+`/commit`'s proportional-sweep triggers could not reach it, and `CLAUDE.md` never learned the
+convention. The policy was real but unreachable — which is exactly how the file grew to 249 lines
+with every check green. All three closed.
+
 ## 5. Findings resolved
 
 Beyond the deviations above: an empty API response is **HTTP 200 with a complete envelope** (29
@@ -182,6 +222,47 @@ equivalent evidence against a scratch copy instead.
 3. **Optional re-verification** — everything in §1 is reproducible from a clean checkout;
    `--target local` additionally needs `mkdir -p var/warehouse` and a backfill run, both now in
    `README.md`.
+
+## 6a. Panel findings left open, deliberately
+
+None is a blocker; none makes a current number wrong. Every one is a **guard that goes missing the
+first time this pilot widens** — which is when it would be expensive to discover. Recorded here so
+the next slice inherits them rather than rediscovering them.
+
+**A duplicate key arriving inside ONE capture is invisible.** Bronze's dedup collapses it, and
+neither fidelity test can see it: the row-count test compares against the same winning-row logic,
+and latest-capture-wins only compares *across* captures. This is R11 — the scope's own named worst
+case, "the most dangerous mistake available in this slice." Zero such duplicates exist in the pilot
+(measured), so nothing is wrong today. The guard is a `count(*) vs count(distinct key)` **within**
+each capture, before dedup.
+
+**An upstream column rename becomes a silent all-NULL under `--target local`.** The header contract
+is enforced against committed fixtures and against the live endpoint, but never against *landed*
+data — so a rename between a capture and a build produces a fully null column rather than an error.
+The `network` test catches it only when someone runs it.
+
+**An aborted capture is ingested by the bronze glob.** The landing writer treats a payload with no
+manifest as incomplete; the source glob does not consult manifests. Two layers, two definitions of
+"complete." Already recorded as a cost in ADR 0008; the fix is either a manifest-aware source or a
+sweep before `--target local`.
+
+**The run manifest's `observed_spacing_seconds` measures the wrong interval** — it can read *below*
+the configured floor while the client was perfectly polite, because it times the loop rather than
+the issue points. The correct value is already computed on the client. This matters only when
+someone uses the manifest to argue the pacing was adequate.
+
+**`LandingError` is reported as "the run never started"** (exit 2) when it can only ever fire
+mid-run, after captures may already have landed. The build agent declined to fix it rather than
+change exit-code semantics with nothing pinning the current behaviour — the right call. Recipe is
+in `reviews/panel-fixes-handoff.md`.
+
+**Smaller, same character:** no overtime game exists in any fixture, so the `+25 per OT` branch of
+the minutes test never evaluates in CI; latest-capture-wins is proven only at team grain; the
+cross-grain reconciliation passes vacuously for a measure that is NULL on *both* grains (DuckDB
+`UNPIVOT` excludes nulls); four documented foreign keys carry no `relationships` test, including
+both of `dim_player_team_stint`'s; `NBA_LANDING_ROOT` has two anchor semantics while only the
+warehouse key got a guard against exactly that; and `--recapture` bypasses skip-if-present for the
+whole run, so a deliberate re-pull is not resumable.
 
 ## 7. Hand-off
 

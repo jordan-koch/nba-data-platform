@@ -10,11 +10,18 @@ is declared at `pyproject.toml:80-82`. Run it deliberately:
 
     uv run pytest -m network
 
-**What it asserts against, and why not `schema.yml`.** Binding correction SEQ-01: this phase
-gates the model phases, so it must not depend on a file a later phase creates. It asserts
-against the ordered column lists recorded in `reviews/endpoint-probe.md`, which are themselves
-measured. Phase 4 re-points it at `transform/models/bronze/schema.yml` as an explicit step,
-once that file exists and is itself checked against these fixtures by the offline drift guard.
+**What it asserts against.** Binding correction SEQ-01 has two halves. The first: while Phase 3
+gated the model phases, this test asserted against the measured column lists in
+`reviews/endpoint-probe.md`, because depending on a file a later phase creates would have made
+the gate hit a `FileNotFoundError` or skip vacuously. The second, executed here: now that
+`transform/models/bronze/schema.yml` exists, this test reads its column list **from the YAML**,
+so there is exactly one declaration of the contract rather than three.
+
+That closes the loop with `tests/test_fixture_schema_drift.py`, which asserts fixtures equal the
+same YAML. Live matches YAML, YAML matches fixtures — so a source change reddens here, a fixture
+re-record without a YAML edit reddens there, and neither can drift silently past the other. The
+hardcoded lists below are retained only as a **cross-check on the parse itself**: if the YAML
+reader ever returns something empty or reordered, comparing against it alone would pass.
 
 Cost: six calls at the configured pacing, roughly six seconds. It satisfies AC 27 by printing
 the measured call count, rows per call, wall-clock seconds, and the ordered column list per
@@ -25,14 +32,14 @@ grain per pilot season — through `capsys.disabled()`, so the figures appear on
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from nba_platform.client import GameLogClient
 from nba_platform.config import get_settings
-
-pytestmark = pytest.mark.network
 
 # MEASURED 2026-08-15 and recorded in reviews/endpoint-probe.md. Identical across 2003-04,
 # 2019-20 and 2024-25 at both grains. Note the player list is NOT the team list with three
@@ -52,7 +59,49 @@ PLAYER_COLUMNS: tuple[str, ...] = (
     "PF", "PTS", "PLUS_MINUS", "FANTASY_PTS", "VIDEO_AVAILABLE",
 )  # fmt: skip
 
-EXPECTED_COLUMNS = {"team": TEAM_COLUMNS, "player": PLAYER_COLUMNS}
+RECORDED_COLUMNS = {"team": TEAM_COLUMNS, "player": PLAYER_COLUMNS}
+
+BRONZE_SCHEMA = (
+    Path(__file__).resolve().parents[1] / "transform" / "models" / "bronze" / "schema.yml"
+)
+
+
+def _declared_columns() -> dict[str, tuple[str, ...]]:
+    """Grain -> ordered endpoint columns, read from bronze's own schema.yml.
+
+    SEQ-01's second half: the YAML is the single declaration of this contract. Columns recovered
+    from the landing path rather than projected from the envelope opt out via
+    `meta.endpoint_column: false`, so provenance columns are excluded by property, not by name.
+    """
+    with BRONZE_SCHEMA.open(encoding="utf-8") as handle:
+        loaded: Any = yaml.safe_load(handle)
+    declared: dict[str, tuple[str, ...]] = {}
+    for model in loaded["models"]:
+        grain = str(model["name"]).rsplit("_", 1)[-1]
+        declared[grain] = tuple(
+            str(column["name"]).upper()
+            for column in model.get("columns", [])
+            if (column.get("meta") or {}).get("endpoint_column") is not False
+        )
+    return declared
+
+
+def test_the_declared_contract_still_matches_what_was_measured() -> None:
+    """Guard the parse itself, offline-checkable, so the live test cannot pass vacuously.
+
+    If `_declared_columns()` ever returned empty or reordered lists, asserting the live response
+    against it alone would succeed while proving nothing.
+    """
+    declared = _declared_columns()
+    assert declared.keys() == RECORDED_COLUMNS.keys()
+    for grain, recorded in RECORDED_COLUMNS.items():
+        assert declared[grain] == recorded, (
+            f"bronze/schema.yml's {grain} column list no longer matches the list measured in "
+            f"reviews/endpoint-probe.md.\n  yaml    : {declared[grain]}\n  measured: {recorded}"
+        )
+
+
+EXPECTED_COLUMNS = _declared_columns()
 
 # A floor, not the measured count: these are real seasons and a response an order of magnitude
 # short of this is a truncated or paginated answer, which is the failure mode that would make
@@ -67,6 +116,7 @@ def _result_set(payload: Any) -> dict[str, Any]:
     return first
 
 
+@pytest.mark.network
 def test_the_live_column_contract_still_matches_what_was_measured(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -118,6 +168,7 @@ def test_the_live_column_contract_still_matches_what_was_measured(
     assert len(measurements) == 6
 
 
+@pytest.mark.network
 def test_the_endpoint_still_answers_an_impossible_season_with_an_empty_envelope() -> None:
     """The empty-response shape AC 20's fixture is built on, re-checked live.
 

@@ -469,6 +469,47 @@ def test_every_fixtures_manifest_agrees_with_the_bytes_beside_it() -> None:
     assert checked >= 7, f"only {checked} captures checked - the corpus looks incomplete"
 
 
+def test_the_corpus_exercises_cross_season_franchise_drift() -> None:
+    """`dim_team`'s whole reason for existing must be visible to CI.
+
+    This guard exists because the corpus once silently lacked it. The first corpus held 17
+    `(team_id, team_name)` pairs over 17 team_ids — zero franchise drift, with Seattle/OKC absent
+    entirely — because the games were chosen by "first N" without checking which franchises they
+    contained. Every test still passed, and `dim_team`'s as-of-latest resolution was, under
+    `--target ci`, indistinguishable from the naive `select distinct team_id, team_name` its own
+    header calls the wrong model.
+
+    Nothing catches that except an assertion about the corpus itself: the drift is a property of
+    which GAMES were kept, so no test over the models can tell a correct model on a blind corpus
+    from an incorrect one.
+    """
+    names_by_id: dict[int, set[str]] = {}
+    for capture in _captures():
+        if "grain=team" not in capture.as_posix():
+            continue
+        payload = json.loads((capture / "payload.json").read_text(encoding="utf-8"))
+        for row in row_dicts(payload):
+            names_by_id.setdefault(int(row["TEAM_ID"]), set()).add(str(row["TEAM_NAME"]))
+
+    assert names_by_id, "no team-grain fixtures - this guard would pass vacuously"
+
+    drifting = {tid: sorted(names) for tid, names in names_by_id.items() if len(names) > 1}
+    assert drifting, (
+        "NO franchise appears under two names anywhere in the fixture corpus, so dim_team's "
+        "as-of-latest rule is untestable in CI and a naive `select distinct team_id, team_name` "
+        "would pass every check. Keep at least one game per drifting franchise on BOTH sides of "
+        "a rename — e.g. Seattle SuperSonics in 2003-04 and Oklahoma City Thunder in 2024-25."
+    )
+
+    # The naive form must be visibly wrong on this corpus, which is the property that makes the
+    # uniqueness test on dim_team meaningful rather than incidental.
+    pairs = sum(len(names) for names in names_by_id.values())
+    assert pairs > len(names_by_id), (
+        f"{pairs} (team_id, team_name) pairs over {len(names_by_id)} team_ids - a naive distinct "
+        "would already satisfy unique(team_id), so the test proves nothing"
+    )
+
+
 def test_the_corpus_stays_small_enough_to_belong_in_git() -> None:
     """This repo redistributes no NBA data; the .gitignore carve-out is not a licence."""
     total = sum(path.stat().st_size for path in _corpus_root().rglob("*.json"))

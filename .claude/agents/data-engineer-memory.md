@@ -117,12 +117,6 @@ cost the next session real time.
   many measures without N union branches, and it keeps the measure name in the failure row. ·
   evidence: `transform/tests/assert_player_points_reconcile_to_team.sql` · tag: `tooling-trap`
 
-- **2026-08-15** · `measured` · `dbt show` appends its own `limit`, so inline SQL carrying one is
-  a parser error — filter with `where` instead. It also elides trailing COLUMNS with `...`, so a
-  wide select silently hides the numbers you ran it for. And a column named `min` cannot be
-  selected bare: `select t.min` works. · evidence:
-  `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
-
 - **2026-08-15** · `measured` · **Make a fixture-backed test go red WITHOUT editing a fixture**:
   copy `tests/fixtures/nba_stats` to a scratch dir, mutate the copy, then run `--target local`
   with `NBA_LANDING_ROOT` pointed at it and `NBA_WAREHOUSE_PATH` at a scratch `.duckdb`. Same
@@ -147,3 +141,21 @@ cost the next session real time.
   optional field landed a payload with no manifest — an aborted capture — instead of failing
   clean. Any writer taking caller-supplied JSON wants this ordering. · evidence:
   `src/nba_platform/landing.py` (`write_capture`) · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · A dry run that reports the PLAN reports the wrong number. The
+  skip-if-present check ran only in the real loop, so `--dry-run` printed 6 while a real run
+  against a populated `var/landing` made 0. Any "what will this cost" preview has to consult the
+  same skip the executor does, or it is only correct on an empty zone. · evidence:
+  `src/nba_platform/backfill.py` (`survey_plan`) · tag: `design-trap`
+
+- **2026-08-15** · `measured` · A dimension assembled from two relations wants a `left` join plus
+  `not_null`, never `inner`. `dim_player` takes its name from bronze and its date span from
+  `fact_player_game`; `inner` would silently DROP a player the two disagree about, `left` turns
+  the disagreement into nulls that a declared test reddens. · evidence:
+  `transform/models/silver/dim_player.sql` · tag: `dbt-pattern`
+
+- **2026-08-15** · `measured` · For a multi-model floor, left-join an expected-values CTE (a chain
+  of `select 'literal' as col union all ...`, which lints clean) against the `group by`. A branch
+  deleted from the union then reports zero rather than dropping silently out of the assertion —
+  the difference between a floor and a decoration. · evidence:
+  `transform/tests/assert_game_id_keeps_leading_zeros.sql` · tag: `dbt-pattern`

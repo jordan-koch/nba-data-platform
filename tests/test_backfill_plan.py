@@ -111,7 +111,7 @@ def test_a_dry_run_prints_the_cost_a_human_needs_before_spending_it(
 
 
 def test_the_dry_run_count_equals_the_real_runs_call_count(landing_root: Path) -> None:
-    """AC 28's offline half, stated exactly."""
+    """AC 28's offline half on a FRESH landing zone."""
     dry_stream = io.StringIO()
     run(["--dry-run"], client=ExplodingClient(), stream=dry_stream)
 
@@ -120,6 +120,77 @@ def test_the_dry_run_count_equals_the_real_runs_call_count(landing_root: Path) -
 
     printed = _printed_call_count(dry_stream.getvalue())
     assert printed == len(client.calls) == real.calls_made == 6
+
+
+REQUESTS_TO_ISSUE = re.compile(r"^requests to issue: (\d+)$", re.MULTILINE)
+
+
+def _printed_requests_to_issue(output: str) -> int:
+    match = REQUESTS_TO_ISSUE.search(output)
+    assert match is not None, f"no 'requests to issue:' line in output:\n{output}"
+    return int(match.group(1))
+
+
+def test_the_dry_run_is_skip_aware_on_a_partially_landed_zone(landing_root: Path) -> None:
+    """AC 28 on the case that actually breaks: a landing zone that is not empty.
+
+    The criterion is that the printed number equals the call count the subsequent real run
+    makes. A dry run that always reports the full plan size satisfies that ONLY on a fresh
+    zone — and the zone is fresh exactly once. Against a partially-landed zone the real run
+    skips what is already there, so an unaware dry run overstates the cost it exists to make
+    checkable, which is the one number the cost guardrail rests on.
+    """
+    # Land two of the six partitions.
+    seeded = CountingClient()
+    run(["--seasons", "2003-04"], client=seeded, stream=io.StringIO())
+    assert len(seeded.calls) == 2
+
+    dry_stream = io.StringIO()
+    run(["--dry-run"], client=ExplodingClient(), stream=dry_stream)
+    output = dry_stream.getvalue()
+
+    # The plan is still six calls; what a real run would ISSUE is four.
+    assert _printed_call_count(output) == 6
+    assert "already landed: 2" in output
+    assert _printed_requests_to_issue(output) == 4
+
+    rest = CountingClient()
+    real = run([], client=rest, stream=io.StringIO())
+
+    assert _printed_requests_to_issue(output) == len(rest.calls) == real.calls_made == 4
+    assert real.skipped == 2
+
+
+def test_a_fully_landed_zone_reports_zero_requests_rather_than_the_plan_size(
+    landing_root: Path,
+) -> None:
+    """The degenerate case, and the one measured against the real var/: 6 planned, 0 issued."""
+    run([], client=CountingClient(), stream=io.StringIO())
+
+    dry_stream = io.StringIO()
+    run(["--dry-run"], client=ExplodingClient(), stream=dry_stream)
+    output = dry_stream.getvalue()
+
+    assert _printed_call_count(output) == 6
+    assert _printed_requests_to_issue(output) == 0
+
+    second = CountingClient()
+    real = run([], client=second, stream=io.StringIO())
+    assert second.calls == []
+    assert real.calls_made == 0
+
+
+def test_recapture_reports_every_partition_as_a_request(landing_root: Path) -> None:
+    """--recapture ignores existing captures, so the skip-aware count must not subtract them."""
+    run([], client=CountingClient(), stream=io.StringIO())
+
+    dry_stream = io.StringIO()
+    run(["--dry-run", "--recapture"], client=ExplodingClient(), stream=dry_stream)
+    output = dry_stream.getvalue()
+
+    assert _printed_requests_to_issue(output) == 6, (
+        "a --recapture dry run must not subtract already-landed partitions - it re-pulls them"
+    )
 
 
 def test_both_runs_iterate_the_identical_plan_not_merely_the_same_count(

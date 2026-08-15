@@ -39,6 +39,30 @@
 -- and unlike a team, a player CAN appear on two rows of one date (traded mid-season, playing for
 -- the new club the same evening is not possible, but nothing in the data structurally forbids two
 -- rows sharing a date), so the tiebreak is doing real work here rather than only stating intent.
+--
+-- COVERAGE IS PLAYERS WHO APPEARED IN A BOX SCORE, WHICH IS NARROWER THAN "PLAYERS". A player
+-- under contract for a whole season who never got off the bench is ABSENT ENTIRELY -- not a row
+-- with nulls, no row at all -- and so is anyone whose only appearances fall in a season this repo
+-- has not landed. The model is named `dim_player` and that name overclaims; the description in
+-- `schema.yml` says so in words and `+persist_docs` writes it onto the relation.
+--
+-- THE SPAN COLUMNS ARE OBSERVATION BOUNDS, NOT CAREER BOUNDS, and the pilot makes the difference
+-- extreme rather than subtle. `first_observed_game_date` is the earliest game this corpus has the
+-- player playing in, which is a DEBUT only by coincidence; `last_observed_game_date` is likewise
+-- not a retirement. The three pilot seasons are 2003-04, 2019-20 and 2024-25, so player 2544 spans
+-- 2003-10-29 to 2025-04-11 with two decades of unlanded seasons inside it, and a player who
+-- appeared only in 2010-11 is not in this dimension at all. Any "career length" derived from
+-- subtracting these two columns is wrong, and wrong by years.
+--
+-- THE SPAN IS READ FROM `fact_player_game` JOINED TO `dim_game`, NOT FROM BRONZE'S OWN
+-- `game_date`. `fact_player_game` is the model that decides what "appeared" means, so the span has
+-- to be the span of ITS rows or the coverage sentence above stops being true of these columns; and
+-- `dim_game` is silver's single answer for a game's date. THE JOIN IS `left`, DELIBERATELY: the
+-- name side is derived from bronze and the span side from the fact, and an `inner` join would
+-- silently DROP any player the two disagree about. Left-joining instead turns that disagreement
+-- into NULL dates, which the `not_null` tests in `schema.yml` turn into a red build. Measured, the
+-- two sides agree on every player in the corpus -- but they agree because it is asserted, not
+-- because it is assumed.
 
 with player_rows as (
 
@@ -62,10 +86,38 @@ ranked as (
         ) as observation_rank
     from player_rows
 
+),
+
+latest_name as (
+
+    select
+        player_id,
+        player_name
+    from ranked
+    where observation_rank = 1
+
+),
+
+observed_span as (
+
+    -- The first and last game the player is observed IN A BOX SCORE, dated through `dim_game`.
+    -- One row per player by construction, so the join below cannot fan out.
+    select
+        player_game.player_id,
+        min(game.game_date) as first_observed_game_date,
+        max(game.game_date) as last_observed_game_date
+    from {{ ref('fact_player_game') }} as player_game
+    inner join {{ ref('dim_game') }} as game
+        on player_game.game_id = game.game_id
+    group by player_game.player_id
+
 )
 
 select
-    player_id,
-    player_name
-from ranked
-where observation_rank = 1
+    latest_name.player_id,
+    latest_name.player_name,
+    observed_span.first_observed_game_date,
+    observed_span.last_observed_game_date
+from latest_name
+left join observed_span
+    on latest_name.player_id = observed_span.player_id
