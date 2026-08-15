@@ -1,4 +1,4 @@
-> **Status:** planned · created 2026-08-12 · decided · next: implement
+> **Status:** implemented · created 2026-08-12 · decided · next: commit
 
 # Feature Request — Data-Engineer Agent
 

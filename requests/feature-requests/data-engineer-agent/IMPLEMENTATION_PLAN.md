@@ -1,4 +1,4 @@
-> **Status:** plan · created 2026-08-14 · decided · next: implement
+> **Status:** implemented · created 2026-08-14 · decided · next: commit
 
 # Implementation Plan — Data-Engineer Agent
 

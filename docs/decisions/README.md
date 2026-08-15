@@ -44,3 +44,4 @@ section should be uncomfortable to write.
 | [0004](0004-snowflake-first-databricks-later.md) | Snowflake first; Databricks as a later phase | accepted |
 | [0005](0005-browser-side-serving.md) | Serve gold marts to the browser via DuckDB-WASM | accepted |
 | [0006](0006-public-repository.md) | Public repository from the first commit | accepted |
+| [0007](0007-write-capable-implementation-subagent.md) | A write-capable implementation subagent | accepted |
