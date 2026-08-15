@@ -81,21 +81,6 @@ their place.
   repo's first `.sql` file flips that step from skipped to running. · evidence:
   `.github/workflows/ci.yml:78-85` · tag: `ci-behaviour`
 
-- **2026-08-14** · `measured` · In agent frontmatter the shell tool is named **`PowerShell`**,
-  not `Bash`, on this box. Declaring `Bash` silently yields an agent with no shell at all —
-  no warning, no error — and therefore no way to run `pytest`, `mypy` or `dbt build`.
-  Argument-scoped syntax like `PowerShell(git status:*)` is parsed but **not enforced**: the
-  tool arrives unrestricted. · evidence:
-  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
-  `harness-behaviour`
-
-- **2026-08-14** · `measured` · A new agent definition is **not** spawnable immediately after
-  being written — the spawn fails with "Agent type not found", which reads exactly like
-  "unsupported". The registry does re-scan later in the same session, so treat that error as
-  *not yet*. A fresh session is the reliable route. · evidence:
-  `requests/feature-requests/data-engineer-agent/reviews/harness-probe.md` · tag:
-  `harness-behaviour`
-
 - **2026-08-14** · `measured` · The `CLAUDE.md` and git status injected into your context are
   a snapshot from the **parent session's start** and can be commits behind the file on disk.
   Inherited context is indistinguishable from something you verified — **read from disk before
