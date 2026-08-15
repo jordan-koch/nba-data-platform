@@ -90,3 +90,4 @@ Every artifact opens with a status blockquote:
 |---|---|---|
 | [box-score-foundation](box-score-foundation/) | intake | Phase 1. Extraction → landing → bronze → silver dimensional core, local. Verifies the `leaguegamelog` bulk-endpoint belief; derives SCD2 player-team affiliation from observed box scores. |
 | [data-engineer-agent](data-engineer-agent/) | implemented | **Tooling, not pipeline** — the feature *is* a subagent that owns implementation work, with its own definition and an editable memory file. Would be the repo's first write-capable subagent. |
+| [agent-dispatch](agent-dispatch/) | intake | **The feature IS a pipeline stage** — modifies `/implement-plan` (stage 4) so it routes a plan's target paths to a builder instead of always building in-thread. The sequel to `data-engineer-agent`; makes the agent the default builder and realizes the context savings that request only bought the capability for. |
