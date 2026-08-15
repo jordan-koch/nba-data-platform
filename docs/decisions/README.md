@@ -46,3 +46,4 @@ section should be uncomfortable to write.
 | [0006](0006-public-repository.md) | Public repository from the first commit | accepted |
 | [0007](0007-write-capable-implementation-subagent.md) | A write-capable implementation subagent | accepted |
 | [0008](0008-landing-layout-and-capture-manifest.md) | Landing layout, capture manifest, latest-capture-wins | accepted |
+| [0009](0009-scd2-affiliation-interval-boundaries.md) | SCD2 affiliation intervals: season-bounded, gap-covering | accepted |

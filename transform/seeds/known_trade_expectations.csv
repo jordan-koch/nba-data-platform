@@ -1,0 +1,7 @@
+player_id,player_name,as_of_date,expected_team_id,expected_team_name,expectation_kind,note
+1631108,Max Christie,2024-10-22,1610612747,Los Angeles Lakers,observed,first observed game of the Lakers stint - present in the trimmed CI fixture
+1631108,Max Christie,2025-02-01,1610612747,Los Angeles Lakers,observed,last observed game before the trade
+1631108,Max Christie,2025-02-02,1610612747,Los Angeles Lakers,interpolated,inside the trade gap - no game played - must resolve to the OLD team
+1631108,Max Christie,2025-02-03,1610612747,Los Angeles Lakers,interpolated,inside the trade gap - the day the Lakers stint closes
+1631108,Max Christie,2025-02-04,1610612742,Dallas Mavericks,observed,first observed game with the new team
+1631108,Max Christie,2025-02-06,1610612742,Dallas Mavericks,observed,second Mavericks game - the last one the trimmed CI fixture retains

@@ -181,3 +181,27 @@ would cost the next session real time.
   lines**, so it under-reports a memory or handoff file against a physical-line budget (125 vs the
   real 159 here). Use `(Get-Content f).Count` when a line ceiling is what you are checking. ·
   evidence: `.claude/agents/data-engineer-memory.md` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **sqlfluff's duckdb dialect cannot parse a window function on the
+  right of `is distinct from` inside a `case when`.** It emits `Found unparsable section` AND a
+  phantom `ST03 unused CTE` naming a different CTE, which sends you to the wrong place. Hoist the
+  `lag()`/`lead()` into its own CTE. `dbt build` stays green throughout — only lint sees it. ·
+  evidence: `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · `dbt show --inline` **appends its own `limit`**, so a trailing
+  `limit` in the inline SQL dies with `Parser Error: syntax error at or near "limit"`. Filter with
+  `where` — e.g. `where id = (select min(id) from t)` — when probing one row. ·
+  evidence: `transform/models/silver/dim_player_team_stint.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **Uniqueness and `mutually_exclusive_ranges` are blind to a
+  degenerate gaps-and-islands collapse.** Rebuilt the stint model as one row per player-season and
+  both schema tests still PASSED; only the singular population floor went red. A range test proves
+  ranges do not overlap, never that the right number of ranges exist — pair it with a `> 0` floor
+  on the population it is supposed to model. · evidence:
+  `transform/tests/assert_stints_did_not_degenerate.sql` · tag: `tooling-trap`
+
+- **2026-08-15** · `measured` · **The trimmed CI fixture makes zero-length SCD2 ranges the common
+  case, not the edge case**: 216 of 258 stints under `--target ci` against 20 of 1,764 under
+  `--target local`, because trimming leaves most players one game. Any range macro's
+  `zero_length_range_allowed` matters far more for CI than local data suggests. · evidence:
+  `transform/models/silver/schema.yml` · tag: `docs-candidate`

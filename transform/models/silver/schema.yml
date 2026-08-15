@@ -409,3 +409,144 @@ models:
         description: >-
           Point differential for the game. At this grain it is the final margin, so the two sides
           of a game negate each other -- an invariant no test asserts yet; see the handoff.
+
+  - name: dim_player_team_stint
+    description: >-
+      GRAIN: one row per player per TEAM-STINT, keyed `(player_id, valid_from)`. A stint is an
+      unbroken run of observed appearances for one team, bounded within a season. Measured over the
+      pilot: 1,764 stints, of which 209 player-seasons carry more than one (68 in 2003-04, 60 in
+      2019-20, 81 in 2024-25).
+
+
+      DERIVED FROM OBSERVATIONS, BECAUSE NO ENDPOINT RETURNS THIS. `leaguegamelog` reports that a
+      player appeared for a team in a game; player-team HISTORY as a time series is nowhere in the
+      source. This model reconstructs it from `fact_player_game`'s observed `team_id` joined to
+      `dim_game` for the date. The dependency runs one way only -- the fact must never join back to
+      this model, or fact correctness would rest on the interpolation the fact is the evidence for.
+
+
+      A DATE INSIDE A TRADE GAP DELIBERATELY RESOLVES TO THE OLD TEAM. `valid_to` is the day BEFORE
+      the next stint's first game, not the last game played, so the days between a player's last
+      game for one team and his first for the next are covered by the OLD stint. Max Christie's
+      Lakers stint runs 2024-10-22 to 2025-02-03 although his last Lakers game was 2025-02-01, and
+      his Mavericks stint opens 2025-02-04. The rejected alternative -- closing at the last observed
+      game -- makes an as-of join for 2025-02-02 return ZERO ROWS, which is a worse answer than a
+      slightly stale one. `last_game_prior_team` and `first_game_new_team` are carried so the
+      interpolated span stays visible and falsifiable instead of being fabricated silently. Only a
+      season's FINAL stint closes at its own last observed game.
+
+
+      THE CONTAINMENT TEST IS VACUOUS BETWEEN GAME DATES, AND THAT IS WHY THERE ARE TWO TESTS.
+      `transform/tests/assert_player_team_matches_open_stint.sql` checks every observed row against
+      the stints, so it proves the run-collapse lost nothing, reordered nothing and produced no
+      overlap -- but it is derived from the same observations it checks, so it says NOTHING about
+      any date on which no game was played. That is exactly the interpolated span above.
+      `transform/tests/assert_known_trade_resolves_both_sides.sql` is the non-vacuous companion: it
+      pins one real trade to `transform/seeds/known_trade_expectations.csv`, including 2025-02-02
+      and 2025-02-03, where no observation exists. Neither test is sufficient alone.
+
+
+      ANY AS-OF JOIN MUST JOIN ON `game_date between valid_from and valid_to` AND NEVER ON
+      `is_current = true`. `is_current` answers "where is he NOW", which is the wrong question for
+      every historical row: resolving affiliation as-of today instead of as-of the game date is this
+      project's single most likely source of silently wrong joins, and this column is the shortest
+      path to committing it.
+
+
+      STINTS ARE BOUNDED BY SEASON, WHICH IS A MODELLING DECISION AND NOT A SOURCE PROPERTY. A
+      player who stays on one team for three seasons gets three rows, not one. Without it the one
+      player observed in all three pilot seasons -- 2544, 2003-10-29 to 2025-04-11 -- collapses into
+      a single twenty-two-year stint. It also means ranges are non-contiguous by construction, which
+      is why the range test below allows gaps.
+    data_tests:
+      # The grain the prose declares, proved. `valid_from` rather than `season_id` or `team_id`:
+      # a player can hold two stints with the SAME team in one season (A -> B -> A, twice in this
+      # corpus), so any key including `team_id` instead of the start date would collide on them.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [player_id, valid_from]
+      # "Exactly one OPEN interval per player", expressed without a null or a 9999 sentinel in
+      # `valid_to` -- the range test below compares bounds directly, and a null upper bound is a
+      # meaningless comparison. This asserts at most one CURRENT stint per player instead.
+      - dbt_utils.unique_combination_of_columns:
+          name: dim_player_team_stint_has_one_current_stint_per_player
+          arguments:
+            combination_of_columns: [player_id]
+          config:
+            where: is_current
+      # ALL FOUR ARGUMENTS ARE EXPLICIT, AND TWO OF THE DEFAULTS WOULD BE WRONG HERE:
+      #   * `partition_by: player_id` -- ranges must be exclusive WITHIN a player, never across
+      #     players; the macro's default of no partition compares every player against every other
+      #     and fails on the first two players who overlap in time, which is all of them.
+      #   * `gaps: 'allowed'` -- stints are season-bounded and the pilot's three seasons are
+      #     non-adjacent, so real gaps exist by construction. `not_allowed` demands contiguity that
+      #     the corpus denies, and `required` forbids the back-to-back stints a trade produces. An
+      #     invalid value raises a compiler error rather than being ignored.
+      #   * `zero_length_range_allowed: true` -- MANDATORY, not defensive. Twenty season-final
+      #     stints span a single date under `--target local` (the ten-day-contract case) and 216 do
+      #     under `--target ci`, where the fixture leaves most players a single game. The macro's
+      #     default of `false` selects a strict `<` that fails on every one of them, which is
+      #     correct data reddening the required check.
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: valid_from
+            upper_bound_column: valid_to
+            partition_by: player_id
+            gaps: 'allowed'
+            zero_length_range_allowed: true
+    columns:
+      - name: player_id
+        description: >-
+          Stable `PERSON_ID`, joining to `dim_player.player_id`. Identity is stable; the
+          affiliation this model carries is not, which is what the date columns are for.
+        data_tests:
+          - not_null
+      - name: team_id
+        description: >-
+          The team observed on every box-score row inside this stint, joining to
+          `dim_team.team_id` -- which resolves the KEY, not the era-correct NAME; see `dim_team`'s
+          caveat. Read off the fact, never assigned from a roster snapshot.
+        data_tests:
+          - not_null
+      - name: season_id
+        description: >-
+          The season this stint is bounded by, carried from `dim_game`. Present because the
+          run-collapse partitions on it: a stint never spans a season boundary.
+        data_tests:
+          - not_null
+      - name: valid_from
+        description: >-
+          First game date observed with this team in this stint. Part of the key. Always an
+          observed date -- the interpolation only ever extends the END of a stint.
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: >-
+          Day BEFORE the next stint's `valid_from`, or -- for a season's final stint -- that
+          stint's last observed game date. NEVER NULL and never a sentinel. This is the column that
+          covers a trade gap with the OLD team, so it is frequently LATER than the last game
+          actually played with that team; compare it against `last_game_prior_team` to see how much
+          of the range is interpolated.
+        data_tests:
+          - not_null
+      - name: is_current
+        description: >-
+          True on the stint holding this player's GLOBALLY latest observation, across seasons.
+          A CONVENIENCE FOR "WHERE IS HE NOW", AND A TRAP FOR ANYTHING ELSE: never filter a
+          historical join on it. It also means what the corpus says, not what the league says -- a
+          player last observed in 2003-04 carries a current stint from 2003-04.
+        data_tests:
+          - not_null
+      - name: last_game_prior_team
+        description: >-
+          Last game date actually OBSERVED within this stint. Equals `valid_to` when nothing was
+          interpolated, and precedes it across a trade gap -- 2025-02-01 against a `valid_to` of
+          2025-02-03 for Max Christie's Lakers stint.
+        data_tests:
+          - not_null
+      - name: first_game_new_team
+        description: >-
+          First game date observed in the NEXT stint of the same player-season, and NULL for a
+          season's final stint -- the one nullable column here, and null means "no next stint in
+          this season" rather than missing. With `last_game_prior_team` it brackets the
+          interpolated span exactly.
